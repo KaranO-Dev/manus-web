@@ -8,6 +8,8 @@
   MIDI out and MIDI clock in.
 */
 
+import { stretchLoop } from "./stretch";
+
 export type VoiceId =
   | "lute"
   | "organ"
@@ -861,59 +863,14 @@ class ManusAudioEngine {
     }, 80);
   }
 
-  /**
-   * Overlap-add time stretch with 2048-sample Hann grains and a 512-sample analysis hop. `stretch` is output length
-   * over input length; within 1.5% of 1 the input is returned as is. Pitch stays put because grains are not resampled.
-   */
+  /** The stem at another tempo (lib/stretch.ts). `stretch` is output length over input length; at exactly 1 the stem plays as it is */
   private timeStretch(input: AudioBuffer, stretch: number): AudioBuffer {
     const ctx = this.ctx;
-    if (!ctx || stretch > 0.985 && stretch < 1.015) return input;
-    const channels = input.numberOfChannels;
-    const inLen = input.length;
-    const outLen = Math.max(1, Math.floor(inLen * stretch));
-    const output = ctx.createBuffer(channels, outLen, input.sampleRate);
-    const win = 2048;
-    const analysisHop = 512;
-    const synthesisHop = Math.max(1, Math.round(analysisHop * stretch));
-    const hann = new Float32Array(win);
-    for (let i = 0; i < win; i++) {
-      hann[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (win - 1));
-    }
-    const weight = new Float32Array(outLen);
-    const inputs = Array.from({ length: channels }, (_, c) =>
-      input.getChannelData(c)
-    );
-    const outputs = Array.from({ length: channels }, (_, c) =>
-      output.getChannelData(c)
-    );
-    let inPos = 0;
-    let outPos = 0;
-    while (inPos + win <= inLen && outPos < outLen) {
-      const n = Math.min(win, outLen - outPos);
-      for (let i = 0; i < n; i++) {
-        const w = hann[i];
-        weight[outPos + i] += w;
-        for (let c = 0; c < channels; c++) {
-          outputs[c][outPos + i] += inputs[c][inPos + i] * w;
-        }
-      }
-      inPos += analysisHop;
-      outPos += synthesisHop;
-    }
-    for (let i = 0; i < outLen; i++) {
-      const w = weight[i];
-      if (w > 0.0001) {
-        for (let c = 0; c < channels; c++) outputs[c][i] /= w;
-      }
-    }
-    const fade = Math.min(512, Math.floor(outLen / 8));
-    for (let i = 0; i < fade; i++) {
-      const g = i / fade;
-      for (let c = 0; c < channels; c++) {
-        outputs[c][i] *= g;
-        outputs[c][outLen - 1 - i] *= g;
-      }
-    }
+    if (!ctx || stretch === 1) return input;
+    const channels = Array.from({ length: input.numberOfChannels }, (_, c) => input.getChannelData(c));
+    const stretched = stretchLoop(channels, stretch);
+    const output = ctx.createBuffer(stretched.length, stretched[0].length, input.sampleRate);
+    stretched.forEach((data, c) => output.copyToChannel(data, c));
     return output;
   }
 
