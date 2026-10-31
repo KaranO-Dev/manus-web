@@ -1,11 +1,13 @@
 # Type-check, lint and build, then the browser tests against that production build, on every push to
-# main and every pull request. Ubuntu's runner has Google Chrome, which playwright.config.ts asks for.
+# main and every pull request, or by hand from the Actions tab. Ubuntu's runner has Google Chrome, which
+# playwright.config.ts asks for.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
