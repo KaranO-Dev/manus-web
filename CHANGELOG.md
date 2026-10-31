@@ -4,6 +4,16 @@ All notable changes to MANUS are documented in this file.
 
 ---
 
+## [6.5.14] — 2026-10-31
+
+### Fixed
+- A riff played at another tempo loops without a gap. The stretched backing stem read only the windows that fit inside the stem and faded both of its ends, so at 96 BPM (a 120 BPM riff stretched by 1.25) the last 500 to 1,150 samples of every loop were silent, with a dip in level either side of the seam. The windows now go round the loop, as in the Android app's 1.1.2. A stem is also left unstretched only at exactly its own tempo; within 1.5% of it, it used to be left as it was and drift against the chart.
+
+### Changed
+- The stretch lives in `lib/stretch.ts`, with tests in Node: the take's length, a steady level through the seam, and a tone that loops cleanly before and after.
+
+---
+
 ## [6.5.13] — 2026-10-31
 
 ### Changed
