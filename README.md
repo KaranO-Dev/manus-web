@@ -87,4 +87,6 @@ Hand tracking is [MediaPipe](https://github.com/google-ai-edge/mediapipe) and it
 
 MANUS itself is © 2026 Karan Oroumchi, all rights reserved. The code is published for reading. Copying or reusing it needs written permission; see [LICENSE](./LICENSE).
 
+The public repository, [github.com/KaranO-Dev/manus-web](https://github.com/KaranO-Dev/manus-web), gets a copy of each release from the private working one, so its history starts at 6.5.13. The [changelog](./CHANGELOG.md) goes back to 2.0.0.
+
 Designed and built by Karan Oroumchi, [karano.me](https://karano.me).
