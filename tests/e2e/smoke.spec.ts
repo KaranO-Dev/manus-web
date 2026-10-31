@@ -188,14 +188,17 @@ test("hand tracking downloads only when the camera is turned on", async ({ page 
   await page.getByRole("button", { name: /OPEN CAM/ }).click();
   await expect(page.getByText("1€ VISION // READY")).toBeVisible({ timeout: 45_000 });
   expect(tracking.some((u) => u.endsWith("/models/hand_landmarker.task"))).toBe(true);
-  // and from then on the tracker is kept, so hand tracking works offline too
+  // and from then on the tracker is kept, so hand tracking works offline too. Writing the 7.8 MB model to the
+  // cache takes longer than the default 5 s on a slower machine, such as GitHub's Linux runner
   await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        for (const name of await caches.keys())
-          if (await (await caches.open(name)).match("/models/hand_landmarker.task")) return true;
-        return false;
-      })
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          for (const name of await caches.keys())
+            if (await (await caches.open(name)).match("/models/hand_landmarker.task")) return true;
+          return false;
+        }),
+      { timeout: 30_000 }
     )
     .toBe(true);
 });
