@@ -1,0 +1,2554 @@
+@font-face {
+  font-family: "Mona Sans";
+  src: url("/fonts/MonaSans-Variable.woff2") format("woff2");
+  font-weight: 200 900;
+  font-stretch: 75% 125%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("/fonts/MonaspaceXenon-Variable.woff2") format("woff2");
+  font-weight: 200 800;
+  font-stretch: 100% 125%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Anybody";
+  src:
+    url("/fonts/Anybody-Variable.woff2") format("woff2"),
+    url("/fonts/Anybody-Variable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-stretch: 50% 150%;
+  font-display: swap;
+}
+
+:root {
+  /* Palette: aluminium body, wells and seams, OLED glass, key caps and ink */
+  --alu-body: #e2e0da;
+  --alu-deck: #d8d5ce;
+  --alu-well: #1a1a1d;
+  --alu-seam: #b5b1a8;
+  --alu-highlight: rgba(255, 255, 255, 0.78);
+
+  --oled-black: #050507;
+  --oled-glass: #0a0a0e;
+  --oled-line: rgba(244, 239, 230, 0.14);
+
+  --key-cap: #eceae4;
+  --key-cap-hover: #f6f5f0;
+  --key-dark: #252529;
+  --key-dark-cap: #2f2f35;
+
+  --ink: #141416;
+  --ink-muted: #5a5751;
+
+  /* Accents: the four encoder channel colours (blue, ochre, silver, vermilion) and a green for lit lamps */
+  --te-blue: #2d7ff9;
+  --te-ochre: #f5a623;
+  --te-orange: #ff3b2f;
+  --te-green: #19c37d;
+
+  --font-sans: "Mona Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Monaspace Xenon", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Anybody", "Mona Sans", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html,
+body {
+  background: #111113;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.25;
+  -webkit-font-smoothing: antialiased;
+  width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button:focus-visible,
+[data-air-hover="true"] {
+  outline: 2.5px solid var(--te-blue) !important;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(45, 127, 249, 0.35) !important;
+}
+
+/* Chassis: the aluminium frame around the whole console */
+
+.chassis {
+  width: calc(100vw - 16px);
+  height: calc(100dvh - 16px);
+  margin: 8px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #e7e5df 0%, #dad7d0 100%);
+  border: 1.5px solid #9c988e;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.12),
+    0 18px 42px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  position: relative;
+}
+
+/* Top bar: at least 48px tall */
+.topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  align-content: center;
+  gap: 3px 14px;
+  padding: 0 10px;
+  min-width: 0;
+  min-height: 48px;
+  height: auto;
+  background: var(--alu-deck);
+  border-radius: 8px;
+  border: 1px solid var(--alu-seam);
+  box-shadow: inset 0 1px 0 var(--alu-highlight);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Speaker grille: 6 by 4 dots */
+.speaker-grille {
+  display: grid;
+  grid-template-columns: repeat(6, 3px);
+  grid-template-rows: repeat(4, 3px);
+  gap: 3px;
+  padding-right: 4px;
+}
+
+.speaker-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #222225;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.8);
+}
+
+.brand-model {
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: -0.03em;
+  font-variation-settings: "wdth" 128, "wght" 860;
+  color: var(--ink);
+}
+
+.brand-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--te-orange);
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.brand-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--ink-muted);
+}
+
+@media (max-width: 1280px) {
+  .brand-sub {
+    display: none;
+  }
+}
+
+/* The strip's cell in the top bar. The strip shows only when the cell fits its first readout, so it
+   is never cut down to a fragment when the buttons take the room (expert mode adds MIDI) */
+.topbar-oled-slot {
+  container-type: inline-size;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* Status strip: a recessed OLED readout in the top bar */
+.topbar-oled {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px;
+  background: var(--oled-black);
+  color: #f4efe6;
+  border-radius: 6px;
+  border: 1.5px solid #2e2e34;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.9),
+    0 1px 0 rgba(255, 255, 255, 0.65);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  /* Readouts that don't fit wrap out of view, so the strip never covers the tabs or keys */
+  flex-wrap: wrap;
+  justify-content: center;
+  height: 28px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+@container (max-width: 89px) {
+  .topbar-oled {
+    display: none;
+  }
+}
+
+@media (max-width: 1320px) {
+  .topbar-oled {
+    display: none;
+  }
+}
+
+.stat-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-label {
+  color: #7c7a74;
+}
+
+.stat-val {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.stat-val--blue {
+  color: var(--te-blue);
+}
+
+.stat-val--ochre {
+  color: var(--te-ochre);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* a pixel less on each side than other keys, so the toolbar and its keycaps stay one row at 1366 wide */
+.topbar-actions .ctrl-btn {
+  padding-inline: 8px;
+}
+
+/* The legend along the bottom of the top bar: the credit and the privacy link */
+.topbar-legend {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 12px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1;
+  color: var(--ink-muted);
+}
+
+.topbar-credit {
+  color: inherit;
+  text-decoration: none;
+  /* a bigger hit area than the 8.5px type, without moving the line or its neighbours */
+  padding: 6px;
+  margin: 0 -6px;
+}
+
+.topbar-credit:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* the ring hugs the words, 2px out, not the bigger hit area, so it never covers the line below */
+.topbar-credit:focus-visible {
+  outline: 2.5px solid var(--te-blue);
+  outline-offset: -4px;
+  border-radius: 2px;
+}
+
+.topbar-privacy {
+  margin-left: auto;
+}
+
+/* Workspace: the stage column and the rack column side by side */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 446px);
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* Stage column: the stage over the keybed */
+.stage-column {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 104px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: 8px;
+}
+
+.stage-viewport {
+  /* the bottom bar reads the stage's size (see .hint-short). Its height comes from the layout, never its content */
+  container: stage / size;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+  background: var(--oled-black);
+  border-radius: 10px;
+  border: 2.5px solid #1e1e22;
+  box-shadow:
+    inset 0 0 20px rgba(0, 0, 0, 0.9),
+    0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.stage-canvas-gl,
+.stage-canvas-hud {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stage-canvas-hud {
+  pointer-events: none;
+}
+
+/* The rail of five macro keys (M1 to M5) over the top of the stage */
+.rail {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  right: 10px;
+  z-index: 6;
+  /* the keys read the rail's width (see the rule after .rail-readout) */
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #eceae3 0%, #d4d0c7 100%);
+  border: 1px solid #8f8b82;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -2px 0 rgba(0, 0, 0, 0.18),
+    0 10px 22px rgba(0, 0, 0, 0.35);
+}
+
+.rail-key {
+  --pip: #2d7ff9;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  min-height: 46px;
+  padding: 5px 8px 7px 6px;
+  border-radius: 5px;
+  text-align: left;
+  color: var(--ink);
+  background: linear-gradient(180deg, #f7f5f0 0%, #e3dfd6 100%);
+  border: 1px solid #1a1a1d;
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 2px 0 #2a2a2e;
+  overflow: hidden;
+}
+
+.rail-key:hover,
+.rail-key[data-hovered="true"] {
+  background: linear-gradient(180deg, #ffffff 0%, #ece8df 100%);
+}
+
+.rail-key:active,
+.rail-key[data-hovered="true"] {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 3px rgba(0, 0, 0, 0.18),
+    0 1px 0 #2a2a2e;
+}
+
+.rail-cap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 28px;
+  height: 34px;
+  padding: 4px 0 5px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #3a3a40 0%, #1c1c20 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.rail-index {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  color: #f4efe6;
+}
+
+.rail-lamp {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2a2a30;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.65);
+}
+
+.rail-key:hover .rail-lamp,
+.rail-key[data-hovered="true"] .rail-lamp {
+  background: var(--pip);
+  box-shadow: 0 0 6px var(--pip);
+}
+
+.rail-face {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rail-name {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+  color: #16161a;
+  line-height: 1;
+}
+
+.rail-readout {
+  display: block;
+  min-width: 0;
+  padding: 2px 5px;
+  border-radius: 2px;
+  background: #09090c;
+  color: #f4efe6;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+/* A rail under 490px wide: the dark cap with its M1 to M5 label and lamp goes, so the name has the room */
+@container (max-width: 490px) {
+  .rail-key {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 5px 6px 7px;
+  }
+
+  .rail-cap {
+    display: none;
+  }
+}
+
+@container (max-width: 300px) {
+  .rail-key {
+    padding: 4px 4px 6px;
+  }
+
+  .rail-name {
+    font-size: 10px;
+  }
+}
+
+.rail-dwell {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 2px;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.rail-dwell > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--pip);
+}
+
+/* The first-visit lesson: an aluminium plate like the console's own panels, a small dark readout with a bar for
+   each step, one diagram per step, and the console's keys */
+.lesson {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  display: grid;
+  gap: 12px;
+  width: min(460px, calc(100% - 32px));
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f6f4ee 0%, #e2ded4 100%);
+  color: #16161a;
+  border: 1px solid #8f8b82;
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 2px 0 #9c988e,
+    0 22px 48px rgba(0, 0, 0, 0.5);
+}
+
+.lesson-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--oled-black);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.9);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #b9b6ae;
+}
+
+.lesson-steps {
+  display: flex;
+  gap: 6px;
+}
+
+.lesson-step {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: #2c2c33;
+}
+
+.lesson-step[data-state="done"] {
+  background: rgba(245, 166, 35, 0.45);
+}
+
+.lesson-step[data-state="now"] {
+  background: var(--te-ochre);
+  box-shadow: 0 0 6px var(--te-ochre);
+}
+
+.lesson-main {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.lesson-diagram {
+  height: 84px;
+  border-radius: 6px;
+  background: #0c0c10;
+  border: 1px solid #282832;
+  overflow: hidden;
+}
+
+.lesson-diagram svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.lesson-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 760;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-variation-settings: "wdth" 118, "wght" 760;
+}
+
+.lesson-body {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #2a2a2e;
+}
+
+.lesson-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(20, 20, 22, 0.14);
+}
+
+.lesson-nav {
+  display: flex;
+  gap: 6px;
+}
+
+/* scoped to the lesson, so it outranks .ctrl-btn, which comes later in this file */
+.lesson .lesson-key {
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 14px;
+  font-size: 10px;
+}
+
+.lesson-skip {
+  padding: 8px 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.lesson-skip:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A narrow stage (a phone): the diagram above the words */
+@container stage (max-width: 480px) {
+  .lesson-main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .lesson-diagram {
+    height: 72px;
+  }
+}
+
+/* A short, wide stage (a phone on its side): everything a little tighter, so the card fits */
+@container stage (max-height: 460px) and (min-width: 481px) {
+  .lesson {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .lesson-diagram {
+    height: 64px;
+  }
+
+  .lesson-body {
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+}
+
+.bench {
+  position: fixed;
+  z-index: 40;
+  width: min(360px, calc(100vw - 28px));
+  padding: 12px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f7f4ee 0%, #e3dfd6 100%);
+  color: #16161a;
+  border: 1px solid #8f8b82;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+.bench {
+  top: 64px;
+  right: 18px;
+  max-height: calc(100dvh - 84px);
+  overflow: auto;
+}
+
+.bench-head,
+.bench-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.bench-head strong {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-variation-settings: "wdth" 118, "wght" 760;
+}
+
+.bench-head button,
+.bench-save,
+.bench-go,
+.bench-slot {
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+}
+
+.bench-head button,
+.bench-save {
+  padding: 6px 8px;
+  background: transparent;
+  color: #3a3a40;
+}
+
+.bench-label {
+  margin: 10px 0 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #625f58;
+}
+
+.bench-slot {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px;
+  background: #16161a;
+  color: #f4efe6;
+  text-align: left;
+}
+
+.bench-slot em {
+  font-style: normal;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.bench-slot:disabled {
+  opacity: 0.45;
+}
+
+.bench-slot[data-on="true"],
+.bench-go[data-on="true"] {
+  outline: 2px solid #2d7ff9;
+}
+
+.bench-go {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #16161a;
+  color: #f4efe6;
+}
+
+.bench-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.bench-slider input {
+  width: 100%;
+  accent-color: #16161a;
+}
+
+.bench-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #3a3a40;
+}
+
+/* The score recap: the lesson's card, fixed in the middle of the window over the whole console */
+.recap {
+  position: fixed;
+  z-index: 40;
+  width: min(440px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+}
+
+.recap-score {
+  font-size: 36px;
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  font-variation-settings: "wdth" 125, "wght" 820;
+  font-variant-numeric: tabular-nums;
+}
+
+/* the beats as lamps on the dark readout, one per beat and coloured by grade, with their key under them */
+.recap-board {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  height: auto;
+  min-height: 84px;
+  padding: 10px;
+}
+
+.recap-lamps {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.recap-lamps span {
+  height: 7px;
+  border-radius: 1.5px;
+  background: #2c2c33;
+}
+
+.recap-key {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  justify-content: start;
+  gap: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: #b9b6ae;
+}
+
+.recap-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.recap-key span::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+}
+
+.recap-lamps span[data-grade="PERFECT"],
+.recap-key span[data-grade="PERFECT"]::before {
+  background: #ffffff;
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.55);
+}
+
+.recap-lamps span[data-grade="GREAT"],
+.recap-key span[data-grade="GREAT"]::before {
+  background: var(--te-ochre);
+  box-shadow: 0 0 5px rgba(245, 166, 35, 0.6);
+}
+
+.recap-lamps span[data-grade="GOOD"],
+.recap-key span[data-grade="GOOD"]::before {
+  background: #2d7ff9;
+  box-shadow: 0 0 5px rgba(45, 127, 249, 0.6);
+}
+
+.recap-lamps span[data-grade="MISS"],
+.recap-key span[data-grade="MISS"]::before {
+  background: #ff3b2f;
+  box-shadow: 0 0 5px rgba(255, 59, 47, 0.55);
+}
+
+/* with nothing to replay, Close is the one key, on the right where Replay misses would be */
+.recap-close {
+  margin-left: auto;
+}
+
+/* A phone: the lamps in 16 columns instead of 8, so the board is shorter, and their key in 4 */
+@media (max-width: 480px) {
+  .recap .lesson-main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .recap-board {
+    min-height: 0;
+  }
+
+  .recap-lamps {
+    grid-template-columns: repeat(16, 1fr);
+  }
+
+  .recap-key {
+    grid-template-columns: repeat(4, auto);
+  }
+}
+
+.song-note {
+  margin: 0;
+  padding: 8px 4px 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+/* The stage's bottom: alerts, then the hint and the buttons, in one column so nothing overlaps */
+.stage-bottom {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* The hint shares the row with the buttons when it fits beside them. When it does not, the buttons move to
+   their own row on the right, and the hint wraps instead of being cut */
+.stage-bottom-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hud-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(5, 5, 7, 0.86);
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  color: #f4efe6;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  backdrop-filter: blur(8px);
+}
+
+.hud-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 26px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.hud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+  margin-left: auto;
+  pointer-events: auto;
+}
+
+/* The two buttons and the vision readout share one height and stay on one line */
+.hud-actions .hud-pill {
+  height: 26px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.hud-pill--btn,
+.hud-pill--quiet {
+  cursor: pointer;
+  border-color: #ffffff;
+  font-weight: 800;
+  transition: filter 90ms ease;
+}
+
+.hud-pill--btn:hover,
+.hud-pill--quiet:hover {
+  filter: brightness(1.08);
+}
+
+.hud-pill--btn {
+  background: var(--te-ochre);
+  color: #111113;
+  box-shadow: 0 4px 14px rgba(245, 166, 35, 0.45);
+}
+
+.hud-pill--quiet {
+  background: #eceae4;
+  color: #16161a;
+}
+
+/* A narrow stage (a phone) or a short one (a phone on its side) gets the short hint and labels, which keep the bar
+   below the white line: two rows when narrow, one row when short and wide */
+.hint-short {
+  display: none;
+}
+
+@container stage (max-width: 560px) or (max-height: 460px) {
+  .hint-long {
+    display: none;
+  }
+
+  .hint-short {
+    display: inline;
+  }
+
+  /* a little lower and a little shorter, so the bar clears the white line's notes on a short phone too */
+  .stage-bottom {
+    bottom: 6px;
+  }
+
+  .hud-hint {
+    min-height: 24px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .hud-actions .hud-pill {
+    height: 24px;
+  }
+}
+
+/* The smallest phones (an original iPhone SE): the hint goes and only the buttons and the vision readout stay, so
+   the bar keeps clear of the notes */
+@container stage (max-width: 560px) and (max-height: 400px) {
+  .hud-hint {
+    display: none;
+  }
+}
+
+.hud-pill--alert {
+  border-color: var(--te-orange);
+  color: #ffb4a6;
+}
+
+.stage-alerts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.stage-alerts .hud-pill {
+  max-width: 100%;
+  line-height: 1.35;
+}
+
+.stage-fallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: rgba(5, 5, 7, 0.92);
+  border: 1px solid var(--te-orange);
+  color: #f4efe6;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+.noscript-note {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: var(--oled-black);
+  border: 1px solid var(--te-orange);
+  color: #f4efe6;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.macro-banner {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 5px;
+  background: rgba(5, 5, 7, 0.94);
+  border: 1.5px solid var(--te-blue);
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+  z-index: 10;
+}
+
+.macro-banner strong {
+  color: var(--te-ochre);
+}
+
+.lamp {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4e4b45;
+  flex-shrink: 0;
+}
+
+.lamp[data-lit="true"] {
+  background: var(--te-green);
+  box-shadow: 0 0 6px var(--te-green);
+}
+
+.lamp[data-lit="warn"] {
+  background: var(--te-ochre);
+  box-shadow: 0 0 6px var(--te-ochre);
+}
+
+.lamp[data-lit="rec"] {
+  background: var(--te-orange);
+  box-shadow: 0 0 8px var(--te-orange);
+}
+
+/* Keybed: two banks of four beam keys, 104px tall */
+.finger-matrix {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  height: 104px;
+}
+
+.hand-bank {
+  background: var(--alu-well);
+  border-radius: 8px;
+  padding: 6px 8px 8px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 5px;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.85),
+    0 1px 0 var(--alu-highlight);
+}
+
+.bank-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  color: #9e9c95;
+  letter-spacing: 0.04em;
+}
+
+.pad-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  height: 100%;
+  /* The keys read their row's width: as it narrows, the beam number goes first, then the word CHORD,
+     then the note drops under the pitch, then the keyboard letter goes (the bank header lists the keys) */
+  container-type: inline-size;
+}
+
+/* A beam key: a square keycap that sinks when pressed or played */
+.tactile-pad {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 6px 8px;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #f3f1ec 0%, #dfdcd4 100%);
+  border: 1px solid #111113;
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 3px 0 #0a0a0c,
+    0 4px 6px rgba(0, 0, 0, 0.45);
+  transition: transform 45ms ease, box-shadow 45ms ease, background 60ms ease;
+  text-align: left;
+  overflow: hidden;
+}
+
+/* A shallow circular dish in the corner of each keycap */
+.tactile-pad::after {
+  content: "";
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  right: -8px;
+  bottom: -8px;
+  border-radius: 50%;
+  border: 1px solid rgba(20, 20, 22, 0.08);
+  background: radial-gradient(
+    circle,
+    rgba(0, 0, 0, 0.03) 0%,
+    rgba(255, 255, 255, 0.15) 100%
+  );
+  pointer-events: none;
+}
+
+.tactile-pad:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #eae7df 100%);
+}
+
+.tactile-pad:active,
+.tactile-pad[data-active="true"] {
+  transform: translateY(2.5px);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0.5px 0 #0a0a0c;
+  background: var(--te-orange);
+  color: #ffffff;
+}
+
+.pad-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  z-index: 1;
+}
+
+/* One line, never wrapped: the row-width rules below keep it short enough to fit */
+.pad-top > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.pad-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.pad-key {
+  padding: 0 4px;
+  border-radius: 2px;
+  background: rgba(20, 20, 22, 0.08);
+  font-size: 8.5px;
+  font-weight: 700;
+}
+
+.tactile-pad[data-active="true"] .pad-key {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.pad-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+  z-index: 1;
+}
+
+.pad-solm {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1;
+  font-variation-settings: "wdth" 118, "wght" 820;
+}
+
+.pad-note {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  opacity: 0.78;
+}
+
+/* The row-width steps for the keys (see .pad-row), after the rules they override */
+@container (max-width: 483px) {
+  .pad-num {
+    display: none;
+  }
+}
+
+@container (max-width: 383px) {
+  .pad-word {
+    display: none;
+  }
+}
+
+@container (max-width: 363px) {
+  .pad-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+}
+
+@container (max-width: 319px) {
+  .pad-key {
+    display: none;
+  }
+}
+
+@container (max-width: 280px) {
+  .tactile-pad {
+    padding: 6px 5px;
+  }
+}
+
+/* The narrowest rows (windows from 900px to about 1030px wide): the colour dot goes and the type steps down */
+@container (max-width: 250px) {
+  .pad-dot {
+    display: none;
+  }
+
+  .pad-solm {
+    font-size: 15px;
+  }
+}
+
+@container (max-width: 200px) {
+  .pad-top {
+    font-size: 7.5px;
+  }
+
+  .pad-solm {
+    font-size: 13px;
+  }
+}
+
+/* Rack column: the OLED readout, the encoders and the key wells */
+.rack-column {
+  display: grid;
+  /* Every panel at least as tall as its content, so no name is cut. The voice and optics wells share
+     what is left, and a screen too short for all of it scrolls the rack instead of squeezing it */
+  grid-template-rows:
+    minmax(min-content, auto) 74px minmax(min-content, 1fr) minmax(min-content, 1fr)
+    minmax(min-content, auto);
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: 7px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* On a short laptop screen the deck tightens its spacing so it still fits without scrolling */
+@media (max-height: 820px) and (min-height: 521px) and (min-width: 901px) {
+  .rack-column {
+    gap: 5px;
+  }
+
+  .rack-column .module-well {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .rack-column .well-head {
+    margin-bottom: 2px;
+  }
+
+  .rack-column .te-key {
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+}
+
+/* OLED readout: the note, the patch and four parameters */
+.oled-screen {
+  background: var(--oled-black);
+  border-radius: 9px;
+  border: 2.5px solid #1e1e22;
+  box-shadow:
+    inset 0 2px 10px rgba(0, 0, 0, 0.95),
+    0 1px 0 var(--alu-highlight);
+  padding: 9px 12px;
+  color: #f4efe6;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* at least 138px, taller when a long voice or optics name wraps */
+  min-height: 138px;
+  overflow: hidden;
+}
+
+.oled-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #7c7a72;
+  border-bottom: 1px solid rgba(244, 239, 230, 0.1);
+  padding-bottom: 4px;
+}
+
+.oled-body {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+/* The note button may be narrower than its text; the note stays on one line and FitLine shrinks it */
+.oled-body > button {
+  min-width: 0;
+}
+
+.oled-note-big {
+  font-family: var(--font-display);
+  font-size: 32px;
+  /* 0.95 of the 32px size, fixed so a note FitLine shrinks keeps its line and nothing below it moves */
+  line-height: 30.4px;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: font-variation-settings 75ms linear;
+}
+
+.oled-patch-line {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--te-blue);
+  margin-top: 3px;
+  font-weight: 700;
+}
+
+.oled-fx-line {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--te-ochre);
+}
+
+.oled-footer-params {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  border-top: 1px solid rgba(244, 239, 230, 0.1);
+  padding-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+}
+
+.oled-param {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Encoder well: four knobs, 74px tall */
+.encoder-well {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: var(--alu-well);
+  padding: 6px;
+  border-radius: 8px;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.85),
+    0 1px 0 var(--alu-highlight);
+}
+
+.knob-socket {
+  background: #232327;
+  border-radius: 6px;
+  border: 1px solid #111113;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  position: relative;
+  cursor: ns-resize;
+  transition: background 80ms ease, border-color 80ms ease, transform 60ms ease;
+}
+
+.knob-socket:hover {
+  background: #2c2c32;
+  border-color: var(--te-blue);
+}
+
+.knob-socket:active {
+  transform: scale(0.97);
+}
+
+.knob-socket:focus-visible {
+  outline: 2.5px solid var(--te-blue);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(45, 127, 249, 0.35);
+}
+
+/* A knob's short label (E1 OFF) replaces the long one where the knobs are too narrow for it */
+.knob-label-short {
+  display: none;
+}
+
+@container (max-width: 360px) {
+  .knob-label-long {
+    display: none;
+  }
+
+  .knob-label-short {
+    display: inline;
+  }
+}
+
+.knob-socket[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Off: the cap fades, the label stays readable because it says OFF */
+.knob-socket[aria-disabled="true"] svg {
+  opacity: 0.35;
+}
+
+.knob-socket[aria-disabled="true"]:hover {
+  background: #232327;
+  border-color: #111113;
+}
+
+.knob-socket[aria-disabled="true"]:active {
+  transform: none;
+}
+
+.bank-switch {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.bank-pill {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  background: #c8c4ba;
+  color: var(--ink);
+  border: 1px solid #8c887e;
+}
+
+.bank-pill[data-active="true"] {
+  background: var(--ink);
+  color: #ffffff;
+  border-color: var(--ink);
+}
+
+/* The SIMPLE / EXPERT mode switch in the top bar */
+.mode-tabs {
+  display: inline-flex;
+  background: #18181b;
+  padding: 2px;
+  border-radius: 5px;
+  border: 1px solid #111113;
+  gap: 2px;
+}
+
+.mode-tab {
+  padding: 4px 10px;
+  border-radius: 3.5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: #9e9c95;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.mode-tab[data-active="true"] {
+  background: var(--te-blue);
+  color: #ffffff;
+}
+
+/* X switches the two tabs, a keycap beside them in the tabs' own grey */
+.mode-tabs .key-hint {
+  align-self: center;
+  margin: 0 4px 0 3px;
+  color: #9e9c95;
+}
+
+/* The 16-step beam sequencer strip (expert mode) */
+.step-seq-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 2px;
+  background: var(--oled-black);
+  padding: 4px;
+  border-radius: 5px;
+  border: 1px solid #232327;
+  margin-bottom: 4px;
+}
+
+.step-cell {
+  height: 24px;
+  border-radius: 2.5px;
+  background: #18181e;
+  border: 1px solid rgba(244, 239, 230, 0.12);
+  color: #d0cdc4;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 60ms ease, border-color 60ms ease;
+}
+
+.step-cell:hover {
+  background: #282833;
+  border-color: var(--te-blue);
+}
+
+.step-cell[data-playhead="true"] {
+  background: var(--te-ochre);
+  color: #111113;
+  border-color: #ffffff;
+}
+
+/* Key wells for voices, optics, scale modes and tape */
+.module-well {
+  background: var(--alu-deck);
+  border-radius: 8px;
+  border: 1px solid var(--alu-seam);
+  box-shadow: inset 0 1px 0 var(--alu-highlight);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 0;
+}
+
+/* A well's rows keep their height; the rack scrolls before a row of keys is squeezed */
+.module-well > * {
+  flex-shrink: 0;
+}
+
+.well-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.key-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 5px;
+  flex: 1 0 auto;
+  min-height: 0;
+  background: var(--alu-well);
+  padding: 5px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.key-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  background: var(--alu-well);
+  padding: 4px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bpm-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.bpm-step button {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: #16161a;
+  color: #f4efe6;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bpm-step strong {
+  min-width: 52px;
+  text-align: center;
+  color: var(--ink);
+}
+
+.key-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  background: var(--alu-well);
+  padding: 4px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* A key in a key well: label and lamp on top, name below */
+.te-key {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #f3f1ec 0%, #dedbd2 100%);
+  border: 1px solid #111113;
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 2px 0 #09090b;
+  text-align: left;
+  transition: transform 45ms ease, box-shadow 45ms ease, background 60ms ease;
+  /* never shorter than its two lines, so a name is never cut */
+  min-height: min-content;
+  overflow: hidden;
+}
+
+.te-key:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #eae7de 100%);
+}
+
+.te-key[data-selected="true"] {
+  background: linear-gradient(180deg, #2b2b30 0%, #1c1c20 100%);
+  color: #ffffff;
+  transform: translateY(1.5px);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0.5px 0 #09090b;
+}
+
+.te-key-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.te-key-top > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.te-key:focus-visible {
+  outline: 2px solid #2d7ff9 !important;
+  outline-offset: -3px !important;
+  box-shadow: inset 0 0 0 1px #2d7ff9 !important;
+}
+
+.te-key[data-selected="true"] .te-key-top {
+  color: var(--te-ochre);
+}
+
+.te-key-led {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: #b5b1a8;
+}
+
+.te-key[data-selected="true"] .te-key-led {
+  background: var(--te-orange);
+  box-shadow: none;
+}
+
+.te-key-name {
+  font-weight: 700;
+  font-size: 10.5px;
+  /* room for the parentheses in names like Submediant (bVI) */
+  line-height: 1.2;
+  /* a word wider than a narrow tile breaks with a hyphen instead of being cut */
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  letter-spacing: -0.01em;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* A chord's name is one long word and its numeral (Subdominant (IV)). On a tile too narrow for the word, as
+   on a phone, its letters narrow and then shrink, so the word stays whole instead of breaking */
+.key-grid-4 .te-key {
+  container-type: inline-size;
+}
+
+@container (max-width: 72px) {
+  .key-grid-4 .te-key-name {
+    font-stretch: 75%;
+    font-size: min(10.5px, 21cqi);
+  }
+}
+
+/* Buttons in the top bar and the tape looper */
+.ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #f3f1ec 0%, #dedbd2 100%);
+  border: 1px solid #141416;
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 2px 0 #141416;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: transform 45ms ease, background 60ms ease;
+}
+
+.ctrl-btn:hover {
+  background: #ffffff;
+}
+
+/* Both texts share one grid cell, so a button keeps the width of its longer label and the toolbar never jumps */
+.swap-label {
+  display: inline-grid;
+}
+
+.swap-label > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+
+.swap-label > span[data-shown="false"] {
+  visibility: hidden;
+}
+
+/* A button's key: a small keycap tucked against the button's right edge, so the toolbar stays one row
+   on a laptop. Phones and touch screens have no keys, so it is hidden there */
+.key-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 12px;
+  height: 11px;
+  margin: 0 -4px 0 -1px;
+  padding: 0 2.5px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.72;
+}
+
+@media (max-width: 760px), (hover: none) {
+  .key-hint {
+    display: none;
+  }
+}
+
+.ctrl-btn[data-active="true"] {
+  background: var(--te-orange);
+  color: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  transform: translateY(1.5px);
+}
+
+.ctrl-btn--gold[data-active="true"] {
+  background: var(--te-ochre);
+  color: var(--ink);
+}
+
+.ctrl-btn--dark {
+  background: #232327;
+  color: #ffffff;
+  box-shadow: 0 2px 0 #09090b;
+}
+
+/* a dark key stays dark on hover (the plain key's white hover would hide its white label) */
+.ctrl-btn--dark:hover {
+  background: #33333a;
+}
+
+/* The tape looper's transport row */
+.looper-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.loop-progress {
+  /* takes the room the buttons leave and never widens the bar. With less than 80px it moves to its own
+     line beside CLEAR, and a long status still ends in an ellipsis */
+  flex: 1 1 80px;
+  contain: inline-size;
+  min-width: 0;
+  height: 26px;
+  border-radius: 4px;
+  background: var(--oled-black);
+  border: 1.5px solid #232327;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #f4efe6;
+}
+
+/* The status stays on one line and ends in an ellipsis when the bar is narrow */
+.loop-progress > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loop-playhead {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(255, 59, 47, 0.45);
+  pointer-events: none;
+}
+
+/* Footer legend: one 24px line when it fits. On a narrower screen the keys drop to a second line
+   instead of being cut off at the right edge */
+.footerbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 24px;
+  padding: 4px 10px;
+  min-height: 24px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 16px;
+  color: #54514a;
+}
+
+.footer-note {
+  min-width: 0;
+}
+
+/* the timing readout stays on one line when the note wraps */
+.footer-timing {
+  white-space: nowrap;
+}
+
+.footerbar strong {
+  color: var(--ink);
+}
+
+.footer-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.kbd-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.kbd-tag {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: #cac6bc;
+  border: 1px solid #8c887e;
+  color: var(--ink);
+  font-size: 8.5px;
+  font-weight: 700;
+  margin: 0 1px;
+  line-height: 14px;
+}
+
+/* Expert micro-faders: drag, wheel or arrow keys */
+.fader-bank {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  background: var(--alu-well);
+  padding: 6px;
+  border-radius: 6px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.55);
+}
+
+.micro-fader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.micro-fader-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  color: #9e9c95;
+}
+
+.micro-fader-top strong {
+  color: #f4efe6;
+  font-variant-numeric: tabular-nums;
+}
+
+.micro-fader-track {
+  position: relative;
+  height: 18px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #0c0c0e 0%, #1a1a1e 100%);
+  border: 1px solid #000;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.85);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.micro-fader-track:focus-visible {
+  outline: 2px solid var(--te-blue);
+  outline-offset: 2px;
+}
+
+.micro-fader-fill {
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  bottom: 6px;
+  width: 0;
+  background: #2d7ff9;
+  pointer-events: none;
+}
+
+.micro-fader-cap {
+  position: absolute;
+  top: 2px;
+  width: 8px;
+  height: 12px;
+  margin-left: -4px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #f6f4ee 0%, #c8c4ba 100%);
+  border: 1px solid #111;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 1px 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.optic-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  background: var(--alu-well);
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.optic-row .te-key {
+  padding: 4px 5px;
+}
+
+.optic-row .te-key-name {
+  font-size: 8.5px;
+}
+
+/* Gesture codex: the dialog of gesture cards and keys */
+.codex-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 5, 8, 0.86);
+  backdrop-filter: blur(10px);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.codex-modal {
+  width: min(980px, 96vw);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  background: #141418;
+  border: 2px solid #32323a;
+  border-radius: 12px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  color: #f4efe6;
+}
+
+.codex-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: #09090c;
+  color: #f4efe6;
+  border-bottom: 1.5px solid #282830;
+}
+
+.codex-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  color: #ffffff;
+  font-variation-settings: "wdth" 125, "wght" 840;
+}
+
+.codex-close-btn {
+  padding: 6px 14px;
+  border-radius: 5px;
+  background: var(--te-orange);
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(255, 59, 47, 0.4);
+  transition: transform 60ms ease, filter 80ms ease;
+}
+
+.codex-close-btn:hover {
+  filter: brightness(1.12);
+}
+
+.codex-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: #282830;
+}
+
+@media (max-width: 960px) {
+  .codex-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.codex-card {
+  background: #18181e;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.codex-diagram {
+  width: 100%;
+  height: 84px;
+  background: #0c0c10;
+  border: 1px solid #282832;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.codex-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #9e9c95;
+}
+
+.codex-card-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #ffffff;
+  margin-top: 4px;
+}
+
+.codex-card-desc {
+  font-size: 11px;
+  color: #c6c3ba;
+  line-height: 1.42;
+  margin-top: 4px;
+}
+
+/* Every key, under the gesture cards */
+.codex-keys {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid #282830;
+}
+
+.codex-keys ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 7px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: #c6c3ba;
+}
+
+.codex-keys li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.codex-keys kbd {
+  flex: none;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #2a2a32;
+  border: 1px solid #4a4a55;
+  box-shadow: 0 1px 0 #0a0a0d;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #f4efe6;
+  text-align: center;
+}
+
+.codex-try-btn {
+  width: 100%;
+  min-height: 40px;
+  margin-top: auto;
+  padding: 8px 10px;
+  border-radius: 5px;
+  background: #262630;
+  border: 1px solid #3e3e4c;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+
+.codex-try-btn:hover {
+  background: var(--te-blue);
+  border-color: #ffffff;
+}
+
+.codex-try-btn:disabled {
+  color: #b9b6ae;
+  cursor: not-allowed;
+}
+
+.codex-try-btn:disabled:hover {
+  background: #262630;
+  border-color: #3e3e4c;
+}
+
+/* A phone, or any screen too short for the console (a phone on its side): the deck stacks under the stage */
+@media (max-width: 900px), (max-height: 520px) {
+  html,
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .chassis {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  /* The keybed under the stage takes the height its labels need when they wrap, so it never runs
+     over the OLED below it */
+  .stage-column {
+    height: auto;
+    grid-template-rows: 68vh auto;
+  }
+
+  .finger-matrix {
+    height: auto;
+  }
+
+  /* Each panel as tall as its content: the OLED shows every line of the voice and the optics */
+  .rack-column {
+    height: auto;
+    overflow: visible;
+    grid-template-rows: none;
+  }
+
+  /* The footer under the stacked console: the note on its own lines, then the keys with room
+     between the rows */
+  .footerbar {
+    gap: 12px;
+    padding: 10px 10px 12px;
+    line-height: 1.5;
+  }
+
+  .footer-keys {
+    gap: 8px 14px;
+  }
+
+  .kbd-tag {
+    padding: 1px 5px;
+  }
+}
+
+/* On a phone the two hands stack, so each beam key gets a quarter of the full width, and the top deck
+   puts its buttons on their own rows under the name instead of running over the mode tabs */
+@media (max-width: 760px) {
+  .finger-matrix {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 10px;
+  }
+
+  /* The toolbar becomes an even grid: every button one width and one height, its lamp and label centred,
+     as many to a row as fit with at least 118px each */
+  .topbar-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 6px;
+  }
+
+  .topbar-actions .ctrl-btn {
+    justify-content: center;
+    min-height: 30px;
+  }
+
+  /* in the grid every button already has one width, so a swapping label needs no reserved room */
+  .topbar-actions .swap-label > span[data-shown="false"] {
+    display: none;
+  }
+
+  /* the credit and the privacy line on their own lines, both from the left, with room under the keys */
+  .topbar-legend {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .topbar-privacy {
+    margin-left: 0;
+  }
+
+  /* expert mode's six optics take two rows of three, so their names fit */
+  .optic-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* The smallest phones: a tile name may take three lines, so Subdominant (IV) is not cut */
+@media (max-width: 340px) {
+  .te-key-name {
+    -webkit-line-clamp: 3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Android privacy policy (/android/privacy) */
+
+/* The console never scrolls, so the policy is its own scroll box over the locked page */
+.policy {
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+}
+
+.policy,
+.policy * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* the console's note about JavaScript is not about this page, which needs none */
+body:has(.policy) .noscript-note {
+  display: none;
+}
+
+.policy-sheet {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(20px, 5vw, 44px);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #e7e5df 0%, #dad7d0 100%);
+  border: 1.5px solid #9c988e;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.12),
+    0 18px 42px rgba(0, 0, 0, 0.65);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+.policy-deck {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.policy-home {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+.policy-home:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.policy-title {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 6vw, 36px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variation-settings: "wdth" 125, "wght" 840;
+}
+
+.policy-effective {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.policy-sheet section {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--alu-seam);
+}
+
+.policy-sheet h2 {
+  margin-bottom: 8px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  line-height: 1.25;
+  font-variation-settings: "wdth" 110, "wght" 760;
+}
+
+.policy-sheet p + p,
+.policy-sheet ul + p {
+  margin-top: 12px;
+}
+
+.policy-sheet ul {
+  margin-top: 10px;
+  padding-left: 22px;
+}
+
+.policy-sheet li + li {
+  margin-top: 6px;
+}
+
+.policy-sheet li::marker {
+  color: var(--te-orange);
+}
+
+.policy-sheet a {
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
+.policy-sheet a:focus-visible {
+  outline: 2.5px solid var(--te-blue);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

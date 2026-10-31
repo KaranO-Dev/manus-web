@@ -1,0 +1,36 @@
+# Type-check, lint and build, then the browser tests against that production build, on every push to
+# main and every pull request. Ubuntu's runner has Google Chrome, which playwright.config.ts asks for.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check, lint and build
+        run: npm run check
+      - name: Serve the build
+        run: |
+          npm run start -- --port 3322 > server.log 2>&1 &
+          for i in $(seq 60); do curl -sf http://127.0.0.1:3322 > /dev/null && exit 0; sleep 1; done
+          cat server.log; exit 1
+      - name: Browser tests
+        run: npm run test:e2e

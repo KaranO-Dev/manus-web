@@ -1,0 +1,36 @@
+{
+  "name": "manus",
+  "version": "6.5.13",
+  "private": true,
+  "description": "An instrument you play with your hands, in the browser",
+  "homepage": "https://manus.karano.me",
+  "author": "Karan Oroumchi (https://karano.me)",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev -H 127.0.0.1 -p 3320",
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start -H 127.0.0.1 -p 3320",
+    "lint": "eslint",
+    "check": "tsc --noEmit && npm run lint && npm run build",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
+    "@vercel/analytics": "^2.0.1",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.4.2",
+    "typescript": "^5"
+  }
+}

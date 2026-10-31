@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  The source of app/opengraph-image.jpg and app/twitter-image.jpg (1200×630). Not served: assets/ sits
+  outside public/. Open it in a browser at 1200×630, screenshot it, and save it as a JPG under 300 KB.
+  stage.png is a screenshot of the stage mid-play. It is not kept here, so take a fresh one first.
+-->
+<style>
+@font-face { font-family: Anybody; src: url("../../public/fonts/Anybody-Variable.woff2"); font-weight: 100 900; font-stretch: 50% 150%; }
+@font-face { font-family: Mona; src: url("../../public/fonts/MonaSans-Variable.woff2"); font-weight: 200 900; font-stretch: 75% 125%; }
+@font-face { font-family: Xenon; src: url("../../public/fonts/MonaspaceXenon-Variable.woff2"); font-weight: 200 800; }
+:root { --alu: #e2e0da; --ink: #111113; --muted: #5c5a55; --seam: #b5b1a8; --oled: #050507; --blue: #2d7ff9; --ochre: #f5a623; --red: #ff3b2f; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1200px; height: 630px; overflow: hidden; }
+/* The instrument's own aluminium, brushed a little */
+body { position: relative; background: linear-gradient(180deg, #e8e6e0, #dcd9d2); color: var(--ink); font-family: Mona; }
+body::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, rgba(255,255,255,.12) 0 1px, transparent 1px 3px); pointer-events: none; }
+
+.words { position: absolute; left: 64px; top: 64px; bottom: 64px; width: 470px; display: flex; flex-direction: column; justify-content: space-between; }
+.icon { width: 96px; height: 96px; filter: drop-shadow(0 10px 18px rgba(0,0,0,.28)); }
+h1 { font: 860 92px/0.9 Anybody; font-variation-settings: "wdth" 128, "wght" 860; letter-spacing: -0.03em; }
+.line { margin-top: 18px; font: 500 29px/1.2 Mona; letter-spacing: -0.005em; text-wrap: balance; }
+.lede { margin-top: 14px; font: 400 21px/1.4 Mona; color: var(--muted); text-wrap: pretty; }
+.foot { display: flex; align-items: center; gap: 14px; padding-top: 14px; border-top: 1.5px solid var(--ink); font: 600 19px/1 Xenon; }
+.play { padding: 7px 11px; border-radius: 4px; background: var(--red); color: #fff; font: 700 15px/1 Xenon; letter-spacing: .04em; }
+
+/* The stage: the instrument's black glass, running off the right edge */
+.stage { position: absolute; left: 584px; top: 64px; right: -24px; bottom: 64px; border-radius: 18px 0 0 18px; overflow: hidden; background: var(--oled); border: 3px solid #1e1e22; border-right: 0; box-shadow: inset 0 2px 12px rgba(0,0,0,.95), 0 24px 50px -18px rgba(0,0,0,.45); }
+.stage img { position: absolute; left: 0; top: 50%; width: 100%; height: auto; transform: translateY(-50%); }
+.stage::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 60px rgba(0,0,0,.55); }
+</style>
+</head>
+<body>
+<div class="words">
+  <img class="icon" src="manus-icon.svg" alt="">
+  <div>
+    <h1>MANUS</h1>
+    <p class="line">Pinch the light to play.</p>
+    <p class="lede">Laser harp beams, chords and a theremin, in your browser, with a webcam or a mouse. Nothing is uploaded.</p>
+  </div>
+  <div class="foot"><span class="play">PLAY</span>manus.karano.me</div>
+</div>
+<div class="stage"><img src="stage.png" alt=""></div>
+</body>
+</html>
