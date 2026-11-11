@@ -3,6 +3,10 @@
   the stem, laid down at the same share of the output and divided by the windows' sum. `stretch` is output length
   over input length. Pitch stays put because the windows are not resampled.
 
+  Each window is placed by its centre, not its start: the middle of the input it reads lands at that same share of
+  the output. Placed by the start, every beat came out half a window times (stretch - 1) early or late, 10 ms at a
+  stretch of 1.5, and the stem drifted off the drums under the IV and V chords.
+
   The stem is a loop, so the windows go round it: those running past the end read from the stem's start and lay
   down over the output's start. The stretched take then loops as smoothly as the stem does, with no silent tail and
   no fade at the seam. The Android app's `dsp/stretch.h` does the same.
@@ -28,11 +32,12 @@ export function stretchLoop(channels: Float32Array<ArrayBuffer>[], stretch: numb
   const outLen = Math.max(1, Math.floor(inLen * stretch));
   const windows = Math.max(1, Math.round(inLen / HOP));
   const w = hannWindow();
+  const centre = (WIN / 2) * (stretch - 1);
   const outputs = channels.map(() => new Float32Array(outLen));
   const weight = new Float32Array(outLen);
   for (let k = 0; k < windows; k++) {
     const inPos = Math.round((k * inLen) / windows);
-    const outPos = Math.round((k * outLen) / windows);
+    const outPos = (((Math.round((k * outLen) / windows + centre)) % outLen) + outLen) % outLen;
     for (let i = 0; i < WIN; i++) {
       const from = (inPos + i) % inLen;
       const to = (outPos + i) % outLen;

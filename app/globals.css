@@ -338,6 +338,8 @@ button:focus-visible,
   overflow: hidden;
   cursor: crosshair;
   user-select: none;
+  /* a finger on the stage plays: the browser takes no pan or zoom from it */
+  touch-action: none;
   background: var(--oled-black);
   border-radius: 10px;
   border: 2.5px solid #1e1e22;
@@ -2331,6 +2333,12 @@ button:focus-visible,
   .workspace {
     grid-template-columns: 1fr;
     height: auto;
+  }
+
+  /* The page scrolls here and the stage fills most of the screen: a swipe up or down on it still scrolls, and a
+     strum across it plays */
+  .stage-viewport {
+    touch-action: pan-y;
   }
 
   /* The keybed under the stage takes the height its labels need when they wrap, so it never runs

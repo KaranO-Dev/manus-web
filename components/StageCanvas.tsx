@@ -18,7 +18,6 @@ import {
 import {
   averageHandPose,
   ChironomyGestureDetector,
-  HandLandmarkSmoother,
   THEREMIN_MAX_Y,
   THEREMIN_MIN_Y,
   TOP_RIBBON_SLOTS,
@@ -33,8 +32,13 @@ import {
   type ShaderLookId,
 } from "@/lib/shader";
 import { pickSelfieCamera } from "@/lib/camera";
-import { coverFit, toStage, WHOLE } from "@/lib/camera-fit";
+import { coverFit, WHOLE, type CameraFit } from "@/lib/camera-fit";
+import { FrameClock } from "@/lib/frame-clock";
+import { HandPipeline, type Landmark, type TrackedHand } from "@/lib/hand-pipeline";
+import { startTracker, type Tracker, type TrackerResult } from "@/lib/tracker";
 import { count } from "@/lib/events";
+import { isTypingTarget } from "@/lib/keys";
+import { useModalFocus } from "@/lib/modal-focus";
 
 export interface TelemetryState {
   cameraActive: boolean;
@@ -261,7 +265,11 @@ export function StageCanvas({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [landmarkerReady, setLandmarkerReady] = useState(false);
   const [visionFailed, setVisionFailed] = useState(false);
+  // Where the tracker ended up running, such as "worker-gpu": for tests and for a look in the inspector
+  const [trackerInfo, setTrackerInfo] = useState("");
   const [glUnavailable, setGlUnavailable] = useState(false);
+  // Goes up each time the browser hands back a WebGL context it had taken away, so the stage builds its program again
+  const [glEpoch, setGlEpoch] = useState(0);
   const [lessonOpen, setLessonOpen] = useState(false);
   const [lessonStep, setLessonStep] = useState(0);
   // What the rail and the hint need from the draw loop, copied at the telemetry rate so render reads state, not the ref
@@ -290,13 +298,16 @@ export function StageCanvas({
     setLessonStep(0);
   }, []);
 
-  // W opens or closes the lesson, and Escape closes it
+  // The lesson is a modal: focus goes into it, stays there, and returns to what opened it
+  const lessonRef = useModalFocus<HTMLDivElement>(lessonOpen);
+
+  // W opens or closes the lesson, and Escape closes it. W is the physical key, as the play keys are
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Escape" && lessonOpen) {
+      if (e.repeat || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === "Escape" && lessonOpen) {
         closeLesson();
-      } else if (e.key.toUpperCase() === "W") {
+      } else if (e.code === "KeyW" && !isTypingTarget(e.target)) {
         e.preventDefault();
         if (lessonOpen) {
           closeLesson();
@@ -319,11 +330,10 @@ export function StageCanvas({
     cameraActive: false,
     laserStrumEnabled,
     thereminEnabled,
-    visionMs: 16,
+    visionMs: 0,
     pointerX: 0.56,
     pointerY: 0.38,
     pointerDown: false,
-    lastStrumString: -1,
     spaceWarp: 0.36,
     blurAmount: 0.28,
     filterCutoffNorm: THEREMIN_REST,
@@ -342,6 +352,16 @@ export function StageCanvas({
     lastStepTimestampMs: 0,
     strikeNormY: 0.82, // the white strike line as a share of the stage height, kept current by the draw loop
   });
+  // The beam under each pointer that is down on the stage (-1 while it is on the ribbon), so two fingers on a
+  // touch screen strum on their own and one lifting does not end the other's
+  const strumsRef = useRef<Map<number, number> | null>(null);
+  const strums = () => (strumsRef.current ??= new Map());
+  const endStrum = useCallback((e: React.PointerEvent) => {
+    const map = strumsRef.current;
+    if (!map) return;
+    map.delete(e.pointerId);
+    stateRef.current.pointerDown = map.size > 0;
+  }, []);
 
   useEffect(() => {
     stateRef.current.voice = voice;
@@ -704,8 +724,11 @@ export function StageCanvas({
   }, [cameraRequested]);
 
   // Hand tracking loads the first time the camera is asked for, not with the page: its runtime and model are
-  // about 10 MB over the network, and mouse and touch players never need them. Once loaded it stays for the visit
-  const landmarkerRef = useRef<import("@mediapipe/tasks-vision").HandLandmarker | null>(null);
+  // about 10 MB over the network, and mouse and touch players never need them. Once loaded it stays for the visit.
+  // It runs on the page's thread, where it answers soonest; `?tracker=worker` moves it to a thread of its own
+  // (lib/tracker.ts has the figures)
+  const trackerRef = useRef<Tracker | null>(null);
+  const onTrackerResultRef = useRef<(result: TrackerResult) => void>(() => {});
   const visionStartedRef = useRef(false);
   const unmountedRef = useRef(false);
 
@@ -713,10 +736,8 @@ export function StageCanvas({
     unmountedRef.current = false;
     return () => {
       unmountedRef.current = true;
-      try {
-        landmarkerRef.current?.close();
-      } catch {}
-      landmarkerRef.current = null;
+      trackerRef.current?.close();
+      trackerRef.current = null;
     };
   }, []);
 
@@ -724,65 +745,41 @@ export function StageCanvas({
     if (!cameraRequested || visionStartedRef.current) return;
     visionStartedRef.current = true;
 
-    const load = async (gpu: boolean) => {
-      const vision = await import("@mediapipe/tasks-vision");
-      const fileset = await vision.FilesetResolver.forVisionTasks("/wasm");
-      return vision.HandLandmarker.createFromOptions(
-        fileset,
-        gpu
-          ? {
-              baseOptions: {
-                modelAssetPath: "/models/hand_landmarker.task",
-                delegate: "GPU",
-              },
-              runningMode: "VIDEO",
-              numHands: 2,
-              minHandDetectionConfidence: 0.55,
-              minHandPresenceConfidence: 0.55,
-              minTrackingConfidence: 0.55,
-            }
-          : {
-              baseOptions: {
-                modelAssetPath: "/models/hand_landmarker.task",
-              },
-              runningMode: "VIDEO",
-              numHands: 2,
-            }
-      );
-    };
+    const describe = (tracker: Tracker) => `${tracker.mode}-${tracker.delegate.toLowerCase()}`;
+    const onThread = new URLSearchParams(window.location.search).get("tracker") === "worker";
 
-    (async () => {
-      // the GPU first, then the CPU if this browser's GPU path fails
-      let landmarker: import("@mediapipe/tasks-vision").HandLandmarker | null = null;
-      try {
-        landmarker = await load(true);
-      } catch {
-        try {
-          landmarker = await load(false);
-        } catch {
-          landmarker = null;
-        }
-      }
-      if (!landmarker) {
+    startTracker({
+      prefer: onThread ? "worker" : "main",
+      onResult: (result) => onTrackerResultRef.current(result),
+      onChange: () => {
+        if (trackerRef.current) setTrackerInfo(describe(trackerRef.current));
+      },
+      onLost: () => {
         if (!unmountedRef.current) setVisionFailed(true);
-        return;
+      },
+    }).then(
+      (tracker) => {
+        if (unmountedRef.current) {
+          tracker.close();
+          return;
+        }
+        trackerRef.current = tracker;
+        setTrackerInfo(describe(tracker));
+        setLandmarkerReady(true);
+      },
+      () => {
+        if (!unmountedRef.current) setVisionFailed(true);
       }
-      if (unmountedRef.current) {
-        landmarker.close();
-        return;
-      }
-      landmarkerRef.current = landmarker;
-      setLandmarkerReady(true);
-    })();
+    );
   }, [cameraRequested]);
 
-  // The render loop, once per animation frame: camera texture and hand tracking, gestures, the shader pass,
-  // then the HUD canvas
+  // The render loop, once per animation frame: the camera texture, the shader pass, then the HUD canvas. The
+  // hands and their gestures are read here too, but on the camera's beat: once for each frame the tracker answers
   useEffect(() => {
     let rafId = 0;
     let closed = false;
     const gestureDetector = new ChironomyGestureDetector();
-    const landmarkSmoother = new HandLandmarkSmoother();
+    const handPipeline = new HandPipeline();
 
     const glCanvas = glCanvasRef.current;
     const hudCanvas = hudCanvasRef.current;
@@ -798,6 +795,24 @@ export function StageCanvas({
       setGlUnavailable(true);
       return () => {
         closed = true;
+      };
+    }
+
+    // The browser can take the context away (the GPU reset, or too many tabs drawing). Asking to keep it lets the
+    // browser hand it back, empty: this effect then runs again and builds the program and the textures anew. The
+    // hands and the HUD carry on in between
+    const onContextLost = (e: Event) => e.preventDefault();
+    const onContextRestored = () => setGlEpoch((n) => n + 1);
+    glCanvas.addEventListener("webglcontextlost", onContextLost);
+    glCanvas.addEventListener("webglcontextrestored", onContextRestored);
+    const dropContextListeners = () => {
+      glCanvas.removeEventListener("webglcontextlost", onContextLost);
+      glCanvas.removeEventListener("webglcontextrestored", onContextRestored);
+    };
+    if (gl.isContextLost()) {
+      return () => {
+        closed = true;
+        dropContextListeners();
       };
     }
 
@@ -868,15 +883,11 @@ export function StageCanvas({
     const uPortalSurge = gl.getUniformLocation(prog, "u_portalSurge");
     const uPalmLeft = gl.getUniformLocation(prog, "u_palmLeft");
     const uPalmRight = gl.getUniformLocation(prog, "u_palmRight");
+    const uStrings = gl.getUniformLocation(prog, "u_strings");
     const uRipples = Array.from({ length: 8 }, (_, i) =>
       gl.getUniformLocation(prog, `u_ripples[${i}]`)
     );
 
-    let lastVideoTime = -1;
-    let lastDetectionResult: {
-      landmarks: { x: number; y: number; z: number }[][];
-      handedness: HandSide[];
-    } = { landmarks: [], handedness: [] };
     let lastTelemetryPush = 0;
 
     function buildSimulatedHands(tSec: number): {
@@ -1009,7 +1020,8 @@ export function StageCanvas({
       maskCtx.fillStyle = `rgba(0, 0, 0, ${1 - Math.pow(0.78, dtMs / (1000 / 60))})`;
       maskCtx.fillRect(0, 0, mw, mh);
 
-      maskCtx.filter = "blur(9px)";
+      // A tight matte: wider or softer, the camera's own background showed round each finger as a pale outline
+      maskCtx.filter = "blur(7px)";
       maskCtx.lineCap = "round";
       maskCtx.lineJoin = "round";
 
@@ -1018,8 +1030,8 @@ export function StageCanvas({
           0.07,
           Math.hypot(lm[9].x - lm[0].x, lm[9].y - lm[0].y)
         );
-        const fingerW = handScale * mw * 0.21;
-        const rimW = fingerW * 1.95;
+        const fingerW = handScale * mw * 0.17;
+        const rimW = fingerW * 2.4;
 
         const wristX = lm[0].x * mw;
         const wristY = lm[0].y * mh;
@@ -1092,22 +1104,226 @@ export function StageCanvas({
       uploadHandMask();
     }
 
-    let lastVisionMs = performance.now();
+    // What the stage knows of the hands right now. With the camera on, each answer from the tracker renews it
+    // (onTrackerResult); without it every drawn frame does, from the stand-in hands
+    interface HandsSeen {
+      landmarks: Landmark[][];
+      handedness: HandSide[];
+      palmLeft: [number, number];
+      palmRight: [number, number];
+      poses: HandPoseMetrics[];
+      pinchMeters: { midX: number; midY: number; prox: number; pinched: boolean }[];
+      /** The smallest thumb-to-index distance among the camera's hands; 0 with none */
+      livePinch: number;
+    }
+    const NO_HANDS: HandsSeen = {
+      landmarks: [],
+      handedness: [],
+      palmLeft: [-1, -1],
+      palmRight: [-1, -1],
+      poses: [],
+      pinchMeters: [],
+      livePinch: 0,
+    };
+    let seen = NO_HANDS;
+
+    type StageHand = Pick<TrackedHand, "landmarks" | "side"> &
+      Partial<Pick<TrackedHand, "slot" | "fast" | "fresh">>;
+
+    /**
+     * Reads the gestures in one set of hands and plays what they ask for there and then, so a note never waits
+     * for the next drawn frame. `atMs` is when the hands were seen.
+     */
+    function evaluateHands(hands: StageHand[], atMs: number, camLive: boolean) {
+      const s = stateRef.current;
+      const next: HandsSeen = {
+        landmarks: [],
+        handedness: [],
+        palmLeft: [-1, -1],
+        palmRight: [-1, -1],
+        poses: [],
+        pinchMeters: [],
+        livePinch: 0,
+      };
+      let activeRibbonSlot = -1;
+      let activeRibbonProgress = 0;
+      let leftHandFistHold = false;
+
+      for (const hand of hands) {
+        const lm = hand.landmarks;
+        const side = hand.side;
+
+        const evalRes = gestureDetector.evaluateHand(
+          lm,
+          side,
+          atMs,
+          camLive,
+          s.laserStrumEnabled,
+          hand
+        );
+        const m = evalRes.metrics;
+
+        if (camLive && m.pinchDistance > 0) {
+          next.livePinch =
+            next.livePinch === 0
+              ? m.pinchDistance
+              : Math.min(next.livePinch, m.pinchDistance);
+        }
+
+        next.landmarks.push(lm);
+        next.handedness.push(side);
+        next.poses.push(m);
+        next.pinchMeters.push({
+          midX: (lm[4].x + lm[8].x) * 0.5,
+          midY: (lm[4].y + lm[8].y) * 0.5,
+          prox: m.pinchProximityNorm,
+          pinched: m.isIndexPinched,
+        });
+
+        if (side === "left") {
+          next.palmLeft = [m.palmX, m.palmY];
+          if (camLive) {
+            const leftChordIdx = Math.max(
+              0,
+              Math.min(3, Math.floor(m.palmX * 8))
+            ) as 0 | 1 | 2 | 3;
+            audioEngine.setChordRootIndex(leftChordIdx);
+            if (m.fistProgress > 0.25) {
+              leftHandFistHold = true;
+            }
+          }
+        } else {
+          next.palmRight = [m.palmX, m.palmY];
+        }
+
+        if (side === "right" || hands.length === 1) {
+          s.hoveredStringIndex = m.hoveredStringIndex;
+        }
+
+        if (m.ribbonSlotHover >= 0) {
+          activeRibbonSlot = m.ribbonSlotHover;
+          activeRibbonProgress = m.ribbonHoldProgress;
+        }
+
+        if (evalRes.macroEvent) {
+          s.portalSurge = 0.85;
+          callbacksRef.current.onMacroGesture(evalRes.macroEvent);
+        }
+
+        if (evalRes.pluck && camLive) {
+          const p = evalRes.pluck;
+          if (s.rhythm !== "off" && side === "left") {
+            // With a song or riff running, the left hand only sets the chord root (above): its pinch plays nothing
+          } else {
+            count("note-pinch");
+            externalTriggerRef.current?.(p.hand, p.finger);
+          }
+        }
+      }
+
+      if (camLive) {
+        audioEngine.setStutterFreeze(leftHandFistHold);
+      }
+
+      s.ribbonSlotHover = activeRibbonSlot;
+      s.ribbonHoldProgress = activeRibbonProgress;
+      seen = next;
+    }
+
+    // Camera frames. The page hears of each new one in `noteVideoFrame`; the newest waits there until the tracker
+    // is free, so the tracker always works on the latest picture and never on a queue of old ones
+    const CALLBACK_QUIET_MS = 250;
+    /** Hands the tracker has said nothing about for this long are taken off the stage */
+    const HANDS_STALE_MS = 1000;
+    const frameClock = new FrameClock();
+    let camIsLive = false;
+    let lastFit: CameraFit = WHOLE;
+    let lastVideoTime = -1;
+    let lastCallbackMs = 0;
+    let lastResultMs = 0;
+    // the camera texture is behind the video
+    let frameFresh = false;
+    // a frame the tracker has not been offered yet, and its times
+    let frameWaiting = false;
+    let frameAtMs = 0;
+    let framePageMs = 0;
+    let frameLagMs = 0;
+    // the same times, for the frame that is with the tracker
+    let offeredPageMs = 0;
+    let offeredLagMs = 0;
+
+    function pumpTracker() {
+      const tracker = trackerRef.current;
+      const video = videoRef.current;
+      if (!frameWaiting || !camIsLive || !tracker || !video || tracker.busy) return;
+      frameWaiting = false;
+      offeredPageMs = framePageMs;
+      offeredLagMs = frameLagMs;
+      tracker.offer(video, frameAtMs);
+    }
+
+    /** `pageMs` is when the page saw the frame, `mediaSec` the camera's stamp for it, `captureMs` when it was taken */
+    function noteVideoFrame(pageMs: number, mediaSec?: number, captureMs?: number) {
+      frameFresh = true;
+      frameWaiting = true;
+      framePageMs = pageMs;
+      frameAtMs = frameClock.stamp(pageMs, mediaSec);
+      const lag = captureMs === undefined ? -1 : pageMs - captureMs;
+      frameLagMs = lag >= 0 && lag < 250 ? lag : 0;
+      pumpTracker();
+    }
+
+    function onTrackerResult(result: TrackerResult) {
+      if (closed || !camIsLive) return;
+      const s = stateRef.current;
+      const now = performance.now();
+      lastResultMs = now;
+      // From the camera taking the frame, where the browser says when that was, to the gestures being read
+      const seenMs = Math.max(0, now - offeredPageMs) + offeredLagMs;
+      s.visionMs = s.visionMs > 0 ? s.visionMs * 0.85 + seenMs * 0.15 : seenMs;
+      evaluateHands(
+        handPipeline.track(result.hands, lastFit, result.capturedAtMs),
+        result.capturedAtMs,
+        true
+      );
+      pumpTracker();
+    }
+    onTrackerResultRef.current = onTrackerResult;
+
+    // The browser calls back once for each frame the camera delivers, with the camera's own time for it. Where
+    // it can't, or the callback goes quiet, the frame loop below notices the picture has moved on
+    const frameVideo = videoRef.current;
+    const watchesFrames =
+      frameVideo !== null && typeof frameVideo.requestVideoFrameCallback === "function";
+    let videoFrameHandle = 0;
+    function onVideoFrame(now: number, meta: VideoFrameCallbackMetadata) {
+      if (closed || !frameVideo) return;
+      videoFrameHandle = frameVideo.requestVideoFrameCallback(onVideoFrame);
+      lastCallbackMs = now;
+      noteVideoFrame(now, meta.mediaTime, meta.captureTime);
+    }
+    if (watchesFrames) videoFrameHandle = frameVideo.requestVideoFrameCallback(onVideoFrame);
+
+    let lastFrameMs = performance.now();
     function renderLoop(nowMs: number) {
-      const s0 = stateRef.current;
-      const frame = Math.max(0, nowMs - lastVisionMs);
-      lastVisionMs = nowMs;
-      s0.visionMs = s0.visionMs * 0.85 + frame * 0.15;
       if (closed) return;
       rafId = requestAnimationFrame(renderLoop);
+
+      const frame = Math.max(0, nowMs - lastFrameMs);
+      lastFrameMs = nowMs;
+      // The easing and decay figures below are per 1/60 s. `f60` is how many of those this frame took, so they
+      // run at the same speed on a 120 Hz screen and catch up after a slow frame
+      const f60 = Math.min(frame, 100) / (1000 / 60);
+      const ease = (keep: number) => 1 - Math.pow(keep, f60);
 
       const tSec = nowMs * 0.001;
       const s = stateRef.current;
 
-      s.portalSurge = Math.max(0, s.portalSurge * 0.94 - 0.002);
+      s.portalSurge = Math.max(0, s.portalSurge * Math.pow(0.94, f60) - 0.002 * f60);
 
+      const vibKeep = Math.pow(0.91, f60);
       for (let i = 0; i < 8; i++) {
-        harpStringsVibRef.current[i] *= 0.91;
+        harpStringsVibRef.current[i] *= vibKeep;
       }
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1132,139 +1348,60 @@ export function StageCanvas({
       // The part of the camera picture the stage shows, at its true shape (lib/camera-fit.ts). The stage follows
       // the page layout, so the crop changes with the window; nothing asks the player to turn the phone
       const fit = camLive && video ? coverFit(video.videoWidth / video.videoHeight, cw / ch) : WHOLE;
+      lastFit = fit;
+
+      if (camLive !== camIsLive) {
+        // The camera came on or went off: what was known of the hands belonged to the other kind
+        camIsLive = camLive;
+        handPipeline.clear();
+        seen = NO_HANDS;
+        s.visionMs = 0;
+        lastResultMs = nowMs;
+        frameFresh = camLive;
+        if (!camLive) audioEngine.setStutterFreeze(false);
+      }
 
       if (camLive && video) {
-        gl!.activeTexture(gl!.TEXTURE0);
-        gl!.bindTexture(gl!.TEXTURE_2D, texCam);
-        gl!.texImage2D(
-          gl!.TEXTURE_2D,
-          0,
-          gl!.RGBA,
-          gl!.RGBA,
-          gl!.UNSIGNED_BYTE,
-          video
-        );
-
-        const handLandmarker = landmarkerRef.current;
-        if (handLandmarker && video.currentTime !== lastVideoTime) {
+        if (video.currentTime !== lastVideoTime) {
           lastVideoTime = video.currentTime;
-          try {
-            const res = handLandmarker.detectForVideo(video, nowMs);
-            const mirrored = (res.landmarks ?? []).map((hand, hIdx) =>
-              landmarkSmoother.smooth(
-                hIdx,
-                hand.map((lm) => toStage({ x: 1.0 - lm.x, y: lm.y, z: lm.z }, fit)),
-                tSec
-              )
-            );
-            const sides: HandSide[] = (res.handednesses ?? []).map(
-              (_, idx) => {
-                const wristX = mirrored[idx]?.[0]?.x ?? 0.5;
-                return wristX < 0.5 ? "left" : "right";
-              }
-            );
-            lastDetectionResult = { landmarks: mirrored, handedness: sides };
-          } catch {}
+          if (nowMs - lastCallbackMs > CALLBACK_QUIET_MS) noteVideoFrame(nowMs);
         }
-        updateHandMaskTexture(lastDetectionResult.landmarks, frame);
+        pumpTracker();
+
+        // The camera's picture goes to the GPU once per camera frame, not once per screen refresh
+        if (frameFresh) {
+          frameFresh = false;
+          gl!.activeTexture(gl!.TEXTURE0);
+          gl!.bindTexture(gl!.TEXTURE_2D, texCam);
+          gl!.texImage2D(
+            gl!.TEXTURE_2D,
+            0,
+            gl!.RGBA,
+            gl!.RGBA,
+            gl!.UNSIGNED_BYTE,
+            video
+          );
+        }
+
+        if (seen.landmarks.length > 0 && nowMs - lastResultMs > HANDS_STALE_MS) {
+          seen = NO_HANDS;
+          s.ribbonSlotHover = -1;
+          s.ribbonHoldProgress = 0;
+          audioEngine.setStutterFreeze(false);
+        }
+        updateHandMaskTexture(seen.landmarks, frame);
       } else {
-        lastDetectionResult = buildSimulatedHands(tSec);
-      }
-
-      let palmLeft: [number, number] = [-1, -1];
-      let palmRight: [number, number] = [-1, -1];
-      const poses: HandPoseMetrics[] = [];
-      let activeRibbonSlot = -1;
-      let activeRibbonProgress = 0;
-      let leftHandFistHold = false;
-      const handsCount = lastDetectionResult.landmarks.length;
-      let livePinch = 0;
-
-      const handPinchMeters: {
-        midX: number;
-        midY: number;
-        prox: number;
-        pinched: boolean;
-      }[] = [];
-
-      for (let h = 0; h < handsCount; h++) {
-        const lm = lastDetectionResult.landmarks[h];
-        const side =
-          lastDetectionResult.handedness[h] ??
-          (lm[0].x < 0.5 ? "left" : "right");
-
-        const evalRes = gestureDetector.evaluateHand(
-          lm,
-          side,
+        const sim = buildSimulatedHands(tSec);
+        evaluateHands(
+          sim.landmarks.map((landmarks, i) => ({ landmarks, side: sim.handedness[i] })),
           nowMs,
-          camLive,
-          s.laserStrumEnabled
+          false
         );
-        const m = evalRes.metrics;
-
-        if (camLive && m.pinchDistance > 0) {
-          livePinch =
-            livePinch === 0
-              ? m.pinchDistance
-              : Math.min(livePinch, m.pinchDistance);
-        }
-
-        handPinchMeters.push({
-          midX: (lm[4].x + lm[8].x) * 0.5,
-          midY: (lm[4].y + lm[8].y) * 0.5,
-          prox: m.pinchProximityNorm,
-          pinched: m.isIndexPinched,
-        });
-
-        if (side === "left") {
-          palmLeft = [m.palmX, m.palmY];
-          if (camLive) {
-            const leftChordIdx = Math.max(
-              0,
-              Math.min(3, Math.floor(m.palmX * 8))
-            ) as 0 | 1 | 2 | 3;
-            audioEngine.setChordRootIndex(leftChordIdx);
-            if (m.fistProgress > 0.25) {
-              leftHandFistHold = true;
-            }
-          }
-        } else {
-          palmRight = [m.palmX, m.palmY];
-        }
-
-        if (side === "right" || handsCount === 1) {
-          s.hoveredStringIndex = m.hoveredStringIndex;
-        }
-
-        if (m.ribbonSlotHover >= 0) {
-          activeRibbonSlot = m.ribbonSlotHover;
-          activeRibbonProgress = m.ribbonHoldProgress;
-        }
-
-        poses.push(m);
-
-        if (evalRes.macroEvent) {
-          s.portalSurge = 0.85;
-          callbacksRef.current.onMacroGesture(evalRes.macroEvent);
-        }
-
-        if (evalRes.pluck && camLive) {
-          const p = evalRes.pluck;
-          if (s.rhythm !== "off" && side === "left") {
-            // With a song or riff running, the left hand only sets the chord root (above): its pinch plays nothing
-          } else {
-            count("note-pinch");
-            externalTriggerRef.current?.(p.hand, p.finger);
-          }
-        }
       }
 
-      if (camLive) {
-        audioEngine.setStutterFreeze(leftHandFistHold);
-      }
-
-      s.ribbonSlotHover = activeRibbonSlot;
-      s.ribbonHoldProgress = activeRibbonProgress;
+      const { palmLeft, palmRight, poses, livePinch } = seen;
+      const handPinchMeters = seen.pinchMeters;
+      const handsCount = seen.landmarks.length;
 
       if (palmLeft[0] >= 0 && palmRight[0] >= 0) {
         const bridgeDist = Math.hypot(
@@ -1275,17 +1412,17 @@ export function StageCanvas({
           0,
           Math.min(1, (bridgeDist - 0.15) / 0.65)
         );
-        s.handBridgeNorm = s.handBridgeNorm * 0.82 + normBridge * 0.18;
+        s.handBridgeNorm += (normBridge - s.handBridgeNorm) * ease(0.82);
       }
 
       const avg = averageHandPose(poses);
       if (avg && camLive) {
-        s.spaceWarp = s.spaceWarp * 0.82 + avg.spread * 0.18;
-        s.blurAmount = s.blurAmount * 0.82 + (1.0 - avg.spread) * 0.48 * 0.18;
+        s.spaceWarp += (avg.spread - s.spaceWarp) * ease(0.82);
+        s.blurAmount += ((1.0 - avg.spread) * 0.48 - s.blurAmount) * ease(0.82);
         if (s.thereminEnabled) {
-          s.filterCutoffNorm = s.filterCutoffNorm * 0.78 + avg.elevation * 0.22;
+          s.filterCutoffNorm += (avg.elevation - s.filterCutoffNorm) * ease(0.78);
         }
-        s.wristTwistNorm = s.wristTwistNorm * 0.82 + avg.wristRoll * 0.18;
+        s.wristTwistNorm += (avg.wristRoll - s.wristTwistNorm) * ease(0.82);
 
         audioEngine.setSpatialParameters(
           s.filterCutoffNorm,
@@ -1299,7 +1436,7 @@ export function StageCanvas({
       if (chartLive && camLive) {
         for (let h = 0; h < handsCount; h++) {
           const pm = handPinchMeters[h];
-          const lm = lastDetectionResult.landmarks[h];
+          const lm = seen.landmarks[h];
           if (!lm) continue;
           const beam = Math.max(0, Math.min(7, Math.floor(lm[8].x * 8)));
           if (pm?.pinched || s.laserStrumEnabled) {
@@ -1333,6 +1470,8 @@ export function StageCanvas({
       gl!.uniform1f(uPortalSurge, s.portalSurge);
       gl!.uniform2f(uPalmLeft, palmLeft[0], palmLeft[1]);
       gl!.uniform2f(uPalmRight, palmRight[0], palmRight[1]);
+      // How hard each beam is ringing, for the laser sheets of FX-VI
+      gl!.uniform1fv(uStrings, harpStringsVibRef.current);
 
       const activeRipples = ripplesRef.current.filter(
         (r) => nowMs - r.born < 1150
@@ -1620,9 +1759,9 @@ export function StageCanvas({
 
       // Hand skeletons, palm rings and fingertips
       for (let h = 0; h < handsCount; h++) {
-        const lm = lastDetectionResult.landmarks[h];
+        const lm = seen.landmarks[h];
         const side =
-          lastDetectionResult.handedness[h] ??
+          seen.handedness[h] ??
           (lm[0].x < 0.5 ? "left" : "right");
 
         ctx2d!.strokeStyle = "rgba(244, 239, 230, 0.72)";
@@ -1873,8 +2012,17 @@ export function StageCanvas({
     return () => {
       closed = true;
       cancelAnimationFrame(rafId);
+      if (watchesFrames) frameVideo.cancelVideoFrameCallback(videoFrameHandle);
+      onTrackerResultRef.current = () => {};
+      dropContextListeners();
+      gl.deleteTexture(texCam);
+      gl.deleteTexture(texMask);
+      gl.deleteBuffer(quadBuf);
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
     };
-  }, [onTelemetry, externalTriggerRef]);
+  }, [onTelemetry, externalTriggerRef, glEpoch]);
 
   const currentVoiceSpec = VOICES.find((v) => v.id === voice) ?? VOICES[0];
   const currentLookSpec =
@@ -1916,9 +2064,10 @@ export function StageCanvas({
         );
       }}
       onPointerMove={(e) => {
+        // a captured pointer keeps reporting once it is off the stage: it stays on the edge it left by
         const rect = e.currentTarget.getBoundingClientRect();
-        const nx = (e.clientX - rect.left) / rect.width;
-        const ny = (e.clientY - rect.top) / rect.height;
+        const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
         const s = stateRef.current;
         s.pointerX = nx;
         s.pointerY = ny;
@@ -1949,9 +2098,10 @@ export function StageCanvas({
           );
         }
 
-        if (s.pointerDown && ny >= TOP_RIBBON_Y) {
-          if (s.lastStrumString !== strIdx) {
-            s.lastStrumString = strIdx;
+        const lastBeam = strums().get(e.pointerId);
+        if (lastBeam !== undefined && ny >= TOP_RIBBON_Y) {
+          if (lastBeam !== strIdx) {
+            strums().set(e.pointerId, strIdx);
             const hand: HandSide = strIdx < 4 ? "left" : "right";
             const finger = (strIdx % 4) as FingerIndex;
             if (s.rhythm !== "off" && s.quantizeMode !== "guide") {
@@ -1966,6 +2116,14 @@ export function StageCanvas({
         }
       }}
       onPointerDown={(e) => {
+        // A press on one of the stage's own buttons is that button's, and only the main button plays
+        if (e.button !== 0 || (e.target instanceof Element && e.target.closest("button"))) return;
+        // The stage keeps the pointer until it lifts: a strum that runs off the edge still ends when the finger does
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* a pointer the browser no longer has */
+        }
         const rect = e.currentTarget.getBoundingClientRect();
         const nx = (e.clientX - rect.left) / rect.width;
         const ny = (e.clientY - rect.top) / rect.height;
@@ -1973,11 +2131,12 @@ export function StageCanvas({
         s.pointerX = nx;
         s.pointerY = ny;
         s.pointerDown = true;
+        strums().set(e.pointerId, -1);
 
         if (ny < TOP_RIBBON_Y) return;
 
         const strIdx = Math.max(0, Math.min(7, Math.floor(nx * 8)));
-        s.lastStrumString = strIdx;
+        strums().set(e.pointerId, strIdx);
         const hand: HandSide = strIdx < 4 ? "left" : "right";
         const finger = (strIdx % 4) as FingerIndex;
         if (s.rhythm !== "off" && s.quantizeMode !== "guide") {
@@ -1986,10 +2145,9 @@ export function StageCanvas({
         }
         externalTriggerRef.current?.(hand, finger);
       }}
-      onPointerUp={() => {
-        stateRef.current.pointerDown = false;
-        stateRef.current.lastStrumString = -1;
-      }}
+      onPointerUp={endStrum}
+      onPointerCancel={endStrum}
+      onLostPointerCapture={endStrum}
     >
       <video ref={videoRef} playsInline muted style={{ display: "none" }} />
       <canvas ref={glCanvasRef} className="stage-canvas-gl" />
@@ -2035,9 +2193,12 @@ export function StageCanvas({
 
       {lessonOpen ? (
         <div
+          ref={lessonRef}
           className="lesson"
           role="dialog"
+          aria-modal="true"
           aria-labelledby="lesson-title"
+          tabIndex={-1}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <div className="lesson-head">
@@ -2146,7 +2307,7 @@ export function StageCanvas({
               LESSON<span className="hint-long"> [W]</span>
             </button>
             {visionFailed ? null : (
-              <span className="hud-pill">
+              <span className="hud-pill" data-tracker={trackerInfo || undefined}>
                 <span className="hint-long">
                   {landmarkerReady ? "1€ VISION // READY" : cameraRequested ? "INIT VISION…" : "1€ VISION // OFF"}
                 </span>

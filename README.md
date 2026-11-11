@@ -30,10 +30,10 @@ There are 12 voices in two banks, six looks for the camera picture, four backing
 
 Everything runs in one browser tab: camera, hand tracking, smoothing, gestures, then sound and picture.
 
-- MediaPipe's Hand Landmarker finds 21 points on each hand, on the GPU, with the CPU as a fallback. The model and its WebAssembly, about 10 MB, load only when the camera turns on, so a first visit stays small.
-- Every point goes through a 1-Euro filter, which holds still while the hand is still and keeps up when it moves fast.
+- MediaPipe's Hand Landmarker finds 21 points on each hand, on the GPU, with the CPU as a fallback. The model and its WebAssembly, about 10 MB, load only when the camera turns on, so a first visit stays small. It runs on the page's thread, where it answers soonest; `?tracker=worker` moves it to a Web Worker. Gestures are read as each answer comes in, once per camera frame.
+- Every point goes through a 1-Euro filter, which holds still while the hand is still and keeps up when it moves fast. The pinch is read from the points before the filter, so a note starts on the frame the fingers close.
 - `lib/gestures.ts` turns the points into a beam, a pinch, a height and a fist. The pinch can be calibrated to a player's hand, and the browser remembers it.
-- `lib/audio.ts` is the sound, in Web Audio. Each of the 12 voices has four sampled pitch zones (48 samples, rendered from Surge XT presets) layered with oscillators, plus a vowel filter, a drum machine with sidechain and a tape looper. In Expert mode it follows an external MIDI clock.
+- `lib/audio.ts` is the sound, in Web Audio. Each of the 12 voices has four sampled pitch zones (48 samples, rendered from Surge XT presets) layered with oscillators, plus a vowel filter, a drum machine with sidechain and a tape looper. The backing is scheduled on the audio clock up to 100 ms ahead, so a busy frame doesn't move the beat, and each chord has its own stretched take of the backing stem, so the stem keeps the tempo at any pitch. In Expert mode it follows an external MIDI clock.
 - `lib/shader.ts` is a WebGL2 shader with six looks. It reads a mask of the hands, so the picture bends behind them while the hands stay sharp.
 - `lib/camera.ts` picks the selfie camera that faces the player, including on a foldable with one camera per screen, and `lib/camera-fit.ts` crops the picture to the stage without stretching it.
 - A service worker caches the app. Once opened, MANUS plays without a connection, and hand tracking works offline after the camera has been on once.
@@ -61,7 +61,7 @@ npm run build && npm run start -- --port 3322
 npm run test:e2e   # in a second terminal
 ```
 
-They drive the installed Google Chrome with WebGL in software and a fake camera, so the hand-tracking path runs headless. Some run in Node instead, putting made-up hands through the same gesture code the stage uses. `E2E_ORIGIN=https://manus.karano.me npm run test:e2e` points them at the live site.
+They drive the installed Google Chrome with WebGL in software and a fake camera, so the hand-tracking path runs headless. `npm run test:unit` runs the rest in Node, with no browser and no build: the gesture rules against a recorded hand, the camera crop, the stem stretch and the song clock. `E2E_ORIGIN=https://manus.karano.me npm run test:e2e` points them at the live site.
 
 Other scripts: `node scripts/render-banner.mjs` draws the banner above from its SVG, `node scripts/pwa-screenshots.mjs` takes the install sheet's screenshots from a running build, and `node scripts/credit.mjs` writes the author credit into every image the site serves.
 
@@ -71,14 +71,21 @@ Other scripts: `node scripts/render-banner.mjs` draws the banner above from its 
 app/page.tsx              the console: controls, panels, keys, setlists
 components/StageCanvas.tsx camera, tracking loop, beams and the shader stage
 lib/audio.ts              the sound engine
+lib/beat-clock.ts         the song clock that places the backing and the stem
+lib/stretch.ts            the backing stem at another tempo or chord
 lib/gestures.ts           smoothing and the gesture rules
+lib/hand-pipeline.ts      from the tracker's hands to the stage's
+lib/tracker.ts            hand tracking on the page or in a worker
+lib/frame-clock.ts        one timeline for the camera's frames
+lib/keys.ts, lib/modal-focus.ts  key and dialog helpers
 lib/shader.ts             the six WebGL2 looks
 lib/camera.ts             which selfie camera to open
 lib/camera-fit.ts         the crop that keeps the picture's shape
 lib/events.ts             the cookie-free play counters
 public/samples            the rendered voices and loops
 public/wasm, public/models MediaPipe's runtime and hand model, served by the app
-tests/e2e                 Playwright tests and Node tests
+tests/e2e                 Playwright tests in Chrome
+tests/unit                Node tests
 ```
 
 ## Credits and licence

@@ -47,6 +47,9 @@ const nextConfig: NextConfig = {
             key: "Referrer-Policy",
             value: "strict-origin-when-cross-origin",
           },
+          // Text and data mining reserved (EU Directive 2019/790, Art. 4(3)), in the W3C TDMRep form that
+          // public/.well-known/tdmrep.json also states; robots.txt turns the AI training crawlers away
+          { key: "tdm-reservation", value: "1" },
         ],
       },
       { source: "/wasm/:path*", headers: immutable },

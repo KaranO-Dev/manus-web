@@ -17,6 +17,8 @@ async function open(page: Page) {
   });
   await page.goto("/");
   await expect(page.locator(".oled-note-big")).toBeVisible();
+  // The display is drawn on the server and shows before the page listens for keys
+  await expect(page.locator("html[data-keys=on]")).toBeAttached();
 }
 
 const theremin = (page: Page) => page.locator('.ctrl-btn[aria-pressed]', { hasText: "THEREMIN" });
@@ -345,8 +347,27 @@ test("search engines and language models get what they need", async ({ page, req
   await open(page);
   const ld = JSON.parse((await page.locator('script[type="application/ld+json"]').textContent())!);
   expect(ld["@type"]).toBe("WebApplication");
+  expect(ld["@id"]).toBe("https://manus.karano.me/#app");
+  expect(ld.sameAs).toContain("https://karano.me/work/manus");
   expect(ld.author["@id"]).toBe("https://karano.me/#person");
   expect(ld.offers.price).toBe("0");
+
+  // Every page in the sitemap says when it last changed
+  const sitemap = await (await request.get("/sitemap.xml")).text();
+  expect(sitemap.match(/<lastmod>\d{4}-\d{2}-\d{2}/g)).toHaveLength(2);
+});
+
+test("crawlers that gather AI training data are turned away, and search is not", async ({ request }) => {
+  const robots = await (await request.get("/robots.txt")).text();
+  expect(robots).toMatch(/User-Agent: GPTBot\n(User-Agent: .+\n)*Disallow: \//);
+  expect(robots).toMatch(/User-Agent: \*\nAllow: \//);
+  expect(robots).not.toContain("Googlebot");
+
+  const home = await request.get("/");
+  expect(home.headers()["tdm-reservation"]).toBe("1");
+  const tdmrep = await request.get("/.well-known/tdmrep.json");
+  expect(tdmrep.status()).toBe(200);
+  expect(await tdmrep.json()).toEqual([{ location: "/*", "tdm-reservation": 1 }]);
 });
 
 test("the Android app's privacy policy has its own page, indexed and in the sitemap", async ({ page, request }) => {
@@ -359,6 +380,10 @@ test("the Android app's privacy policy has its own page, indexed and in the site
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://manus.karano.me/android/privacy");
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "index, follow");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("MANUS privacy policy");
+  // The page is about the app, by its @id; the app's own markup stays on the home page
+  const ld = JSON.parse((await page.locator('script[type="application/ld+json"]').textContent())!);
+  expect(ld["@type"]).toBe("WebPage");
+  expect(ld.about["@id"]).toBe("https://manus.karano.me/#app");
   await expect(page.getByRole("link", { name: "privacy@karano.me" })).toHaveAttribute("href", "mailto:privacy@karano.me");
 
   // The console locks the page, so the policy scrolls in its own box, all the way down and never sideways

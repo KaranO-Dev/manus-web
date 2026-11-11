@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { APP_ID, AUTHOR_PERSON_ID, PRIVACY_UPDATED, SITE_URL, jsonLd } from "@/lib/site";
 
 const TITLE = "MANUS for Android: privacy policy";
 
@@ -41,6 +42,20 @@ export const metadata: Metadata = {
 export default function AndroidPrivacyPolicy() {
   return (
     <main className="policy">
+      {/* A page about MANUS, by its @id; the app's own markup is on the home page */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={jsonLd({
+          "@type": "WebPage",
+          "@id": `${SITE_URL}/android/privacy`,
+          url: `${SITE_URL}/android/privacy`,
+          name: TITLE,
+          description: DESCRIPTION,
+          dateModified: PRIVACY_UPDATED,
+          about: { "@id": APP_ID },
+          author: { "@id": AUTHOR_PERSON_ID },
+        })}
+      />
       <article className="policy-sheet">
         <header className="policy-head">
           <div className="policy-deck">

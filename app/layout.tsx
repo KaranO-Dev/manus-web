@@ -1,12 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import {
-  AUTHOR_PERSON_ID,
-  SITE_COLOR,
-  SITE_DESCRIPTION,
-  SITE_TITLE,
-  SITE_URL,
-  jsonLd,
-} from "@/lib/site";
+import { SITE_COLOR, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
 import { Analytics } from "@vercel/analytics/next";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import "./globals.css";
@@ -50,29 +43,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {/* What MANUS is, for search engines */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={jsonLd({
-            "@type": "WebApplication",
-            name: "MANUS",
-            url: SITE_URL,
-            description: SITE_DESCRIPTION,
-            applicationCategory: "MultimediaApplication",
-            operatingSystem: "Any (in a web browser)",
-            browserRequirements:
-              "Requires JavaScript and WebGL 2. A webcam is needed for hand tracking. A mouse and keys work without one.",
-            softwareVersion: process.env.NEXT_PUBLIC_MANUS_VERSION,
-            offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
-            image: `${SITE_URL}/opengraph-image.jpg`,
-            author: {
-              "@type": "Person",
-              "@id": AUTHOR_PERSON_ID,
-              name: "Karan Oroumchi",
-              url: "https://karano.me",
-            },
-          })}
-        />
         <noscript>
           <p className="noscript-note">
             MANUS needs JavaScript to play. Turn it on and reload the page.

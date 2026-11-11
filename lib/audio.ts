@@ -9,6 +9,7 @@
 */
 
 import { stretchLoop } from "./stretch";
+import { type BeatClock, LOOKAHEAD_SEC, lastStepDue, stemOffset, stemStretch, timeOfStep } from "./beat-clock";
 
 export type VoiceId =
   | "lute"
@@ -523,6 +524,19 @@ export interface LoopEvent {
   chartAuto?: boolean;
 }
 
+/** What a sound started ahead of its step is, so it can be called off: the chart's own lead, a kick (it ducks the reverb) or the rest of the backing */
+type SoundTag = "lead" | "kick" | "backing";
+type AheadSource = { node: AudioScheduledSourceNode; at: number; tag: SoundTag };
+
+/** How long the stem takes to hand over to its take at a new tempo or chord, or after a stutter */
+const STEM_FADE_SEC = 0.025;
+
+/**
+ * How far ahead a song and its stem are started. A source started "now" really starts at the next render quantum with
+ * its offset unchanged, up to 3 ms behind the clock; started a little ahead, it starts exactly where the clock says.
+ */
+const START_AHEAD_SEC = 0.015;
+
 class ManusAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -597,7 +611,6 @@ class ManusAudioEngine {
   private lastMidiCcMs = 0;
 
   private currentRhythm: RhythmId = "off";
-  private rhythmTimer: number | null = null;
   private rhythmLoopSrc: AudioBufferSourceNode | null = null;
   private rhythmLoopGain: GainNode | null = null;
   private rhythmStep = 0;
@@ -608,7 +621,11 @@ class ManusAudioEngine {
   private bpmLoaded = false;
   private stretchCache = new Map<string, AudioBuffer>();
   private stemSwapTimer: number | null = null;
-  private stemStartedAt = 0;
+  private stemWarmTimer: number | null = null;
+  /** Sounds started ahead of their step, until they sound: a change of song, tempo, chord or sound calls them off */
+  private aheadSources: AheadSource[] = [];
+  /** Chart notes played ahead: the stage hears of each one when it sounds */
+  private aheadVisuals: { at: number; ev: LoopEvent }[] = [];
   private stepGrades: (HitGrade | null)[] = Array(32).fill(null);
   private peakCombo = 0;
   private stashedRecap: ScoreRecap | null = null;
@@ -852,6 +869,7 @@ class ManusAudioEngine {
     this.clockStepAt = this.readStepFloat();
     this.clockTimeAt = ctx.currentTime;
     this.clockBpm = next;
+    this.replayAhead();
     if (!isBeamSong(id)) this.scheduleStemStretch();
   }
 
@@ -859,7 +877,7 @@ class ManusAudioEngine {
     if (this.stemSwapTimer !== null) window.clearTimeout(this.stemSwapTimer);
     this.stemSwapTimer = window.setTimeout(() => {
       this.stemSwapTimer = null;
-      this.swapStemPreservingPhase();
+      this.startStem();
     }, 80);
   }
 
@@ -874,69 +892,114 @@ class ManusAudioEngine {
     return output;
   }
 
-  private stretchedStem(): AudioBuffer | null {
-    if (this.currentRhythm === "off" || !this.ctx) return null;
+  /** The playing riff's stem as decoded, and how many steps of the song clock its loop holds */
+  private nativeStem(): { file: string; native: AudioBuffer; loopSteps: number } | null {
+    if (this.currentRhythm === "off" || isBeamSong(this.currentRhythm) || !this.ctx) return null;
     const spec = RHYTHMS.find((r) => r.id === this.currentRhythm);
     if (!spec?.loopFile) return null;
     const native = this.sampleBuffers.get(spec.loopFile);
     if (!native) return null;
-    const stretch = spec.bpm / Math.max(40, this.clockBpm);
-    const key = `${spec.loopFile}:${Math.round(this.clockBpm)}`;
+    // A sixteenth is 15 / bpm seconds; every stem holds 32 of them
+    return { file: spec.loopFile, native, loopSteps: Math.max(1, Math.round((native.duration * spec.bpm) / 15)) };
+  }
+
+  private stemKey(file: string, chordIdx: number): string {
+    return `${file}:${this.stepDurationSec().toFixed(6)}:${chordIdx}`;
+  }
+
+  /**
+   * The stem stretched for the song clock and the chord. It plays at the chord's rate, which raises its pitch and would
+   * speed it up as much, so it is stretched by that rate too: under every chord the loop lasts its steps on the clock
+   * and stays on the drums and the chart.
+   */
+  private stretchedStem(chordIdx = this.chordRootIdx): AudioBuffer | null {
+    const stem = this.nativeStem();
+    if (!stem) return null;
+    const key = this.stemKey(stem.file, chordIdx);
     const cached = this.stretchCache.get(key);
-    if (cached) return cached;
-    const buf = this.timeStretch(native, stretch);
+    if (cached) {
+      // The newest use goes last, so the cache lets go of the take used longest ago
+      this.stretchCache.delete(key);
+      this.stretchCache.set(key, cached);
+      return cached;
+    }
+    const stretch = stemStretch(stem.native.duration, stem.loopSteps, this.stepDurationSec(), this.chordRate(chordIdx));
+    const buf = this.timeStretch(stem.native, stretch);
     this.stretchCache.set(key, buf);
-    if (this.stretchCache.size > 6) {
+    // Room for the four chords at two tempos
+    while (this.stretchCache.size > 8) {
       const oldest = this.stretchCache.keys().next().value;
-      if (oldest) this.stretchCache.delete(oldest);
+      if (oldest === undefined) break;
+      this.stretchCache.delete(oldest);
     }
     return buf;
   }
 
-  private chordRate(): number {
-    const chordOffset = CHORD_ROOTS[this.chordRootIdx]?.semitones ?? 0;
+  private chordRate(chordIdx = this.chordRootIdx): number {
+    const chordOffset = CHORD_ROOTS[chordIdx]?.semitones ?? 0;
     return Math.pow(2, chordOffset / 12);
   }
 
-  private startStem(offsetSec = 0) {
+  /**
+   * Starts the stem where the song clock says it is. A stem already playing hands over in a 25 ms crossfade, so a new
+   * tempo or chord, or the end of a stutter, moves it with no click and no drift.
+   */
+  private startStem() {
     const ctx = this.ctx;
+    const stem = this.nativeStem();
     const buf = this.stretchedStem();
-    if (!ctx || !buf || this.playQuantizeMode === "guide") return;
-    if (this.rhythmLoopSrc) {
-      try {
-        this.rhythmLoopSrc.stop();
-      } catch {
-        /* already stopped */
-      }
-      this.rhythmLoopSrc = null;
-    }
+    if (!ctx || !stem || !buf || this.playQuantizeMode === "guide") return;
+    const old = this.rhythmLoopSrc;
+    const oldGain = this.rhythmLoopGain;
+    const at = ctx.currentTime + START_AHEAD_SEC;
+    const level = this.arcadeHandsPresent ? 0.38 : 0.68;
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.loop = true;
     src.loopStart = 0;
     src.loopEnd = buf.duration;
-    src.playbackRate.setValueAtTime(this.chordRate(), ctx.currentTime);
+    src.playbackRate.value = this.chordRate();
     const lg = ctx.createGain();
-    lg.gain.value = this.arcadeHandsPresent ? 0.38 : 0.68;
+    if (old) {
+      lg.gain.setValueAtTime(0, at);
+      lg.gain.linearRampToValueAtTime(level, at + STEM_FADE_SEC);
+    } else {
+      lg.gain.value = level;
+    }
     src.connect(lg);
     lg.connect(this.filterNode!);
-    const offset = Math.max(0, Math.min(buf.duration - 0.01, offsetSec));
-    src.start(ctx.currentTime, offset);
+    src.start(at, stemOffset(this.clock(), at, stem.loopSteps, buf.duration));
+    if (old) {
+      if (oldGain) {
+        oldGain.gain.cancelScheduledValues(at);
+        oldGain.gain.setValueAtTime(oldGain.gain.value, at);
+        oldGain.gain.linearRampToValueAtTime(0, at + STEM_FADE_SEC);
+      }
+      try {
+        old.stop(at + STEM_FADE_SEC + 0.005);
+      } catch {
+        /* already stopped */
+      }
+    }
     this.rhythmLoopSrc = src;
     this.rhythmLoopGain = lg;
-    this.stemStartedAt = ctx.currentTime - offset;
+    this.warmChords();
   }
 
-  private swapStemPreservingPhase() {
-    if (!this.ctx || !this.rhythmLoopSrc?.buffer) {
-      this.startStem(0);
-      return;
-    }
-    const oldDur = this.rhythmLoopSrc.buffer.duration || 1;
-    const elapsed = Math.max(0, this.ctx.currentTime - this.stemStartedAt);
-    const phase = (elapsed % oldDur) / oldDur;
-    const next = this.stretchedStem();
-    this.startStem(next ? phase * next.duration : 0);
+  /** Stretches the stem for the other chords while nothing is happening, one per pause, so a chord change finds its take ready */
+  private warmChords() {
+    if (this.stemWarmTimer !== null) window.clearTimeout(this.stemWarmTimer);
+    this.stemWarmTimer = window.setTimeout(() => {
+      this.stemWarmTimer = null;
+      const stem = this.nativeStem();
+      if (!stem) return;
+      for (const i of [0, 1, 2, 3] as const) {
+        if (this.stretchCache.has(this.stemKey(stem.file, i))) continue;
+        this.stretchedStem(i);
+        this.warmChords();
+        return;
+      }
+    }, 300);
   }
 
   public async loadSurgeSamples(): Promise<void> {
@@ -973,26 +1036,21 @@ class ManusAudioEngine {
   }
 
   public setActiveVoiceAndMode(voice: VoiceId, mode: ModeId) {
+    if (voice === this.activeVoice && mode === this.activeMode) return;
     this.activeVoice = voice;
     this.activeMode = mode;
+    // The notes played ahead have the old sound
+    this.replayAhead();
   }
 
   public setChordRootIndex(idx: 0 | 1 | 2 | 3) {
-    if (this.chordRootIdx !== idx) {
-      this.chordRootIdx = idx;
-      const chordOffset = CHORD_ROOTS[idx]?.semitones ?? 0;
-      const rateRatio = Math.pow(2, chordOffset / 12);
-
-      if (this.rhythmLoopSrc && this.ctx) {
-        this.rhythmLoopSrc.playbackRate.setTargetAtTime(
-          rateRatio,
-          this.ctx.currentTime,
-          0.04
-        );
-      }
-      if (this.droneActive) {
-        this.toggleBourdonDrone(true, this.activeMode);
-      }
+    if (this.chordRootIdx === idx) return;
+    this.chordRootIdx = idx;
+    // The steps played ahead were in the old chord. The stem changes to its take for the new chord, on the clock
+    this.replayAhead();
+    if (this.rhythmLoopSrc) this.startStem();
+    if (this.droneActive) {
+      this.toggleBourdonDrone(true, this.activeMode);
     }
   }
 
@@ -1004,11 +1062,16 @@ class ManusAudioEngine {
     if (active && !this.stutterActive) {
       this.stutterFrozenAt = this.readStepFloat();
       this.stutterStep = Math.floor(this.stutterFrozenAt);
+      // The steps played ahead would run on past the freeze
+      this.callOffAhead();
+      this.lastDispatchedStep = Math.min(this.lastDispatchedStep, this.stutterStep);
     }
     if (!active && this.stutterActive && this.ctx) {
       this.clockStepAt = this.stutterFrozenAt;
       this.clockTimeAt = this.ctx.currentTime;
       this.lastDispatchedStep = Math.floor(this.stutterFrozenAt);
+      // The clock picks up where it froze, and the stem with it
+      if (this.rhythmLoopSrc) this.startStem();
     }
     this.stutterActive = active;
   }
@@ -1019,7 +1082,8 @@ class ManusAudioEngine {
 
   public setPlayQuantizeMode(mode: PlayQuantizeMode) {
     if (mode === "guide" && this.playQuantizeMode !== "guide") {
-      this.rhythmStep = Math.floor(this.readStepFloat());
+      this.rhythmStep = Math.max(0, Math.floor(this.readStepFloat()));
+      this.callOffAhead();
     }
     if (mode !== "guide" && this.playQuantizeMode === "guide" && this.ctx) {
       this.clockStepAt = this.rhythmStep;
@@ -1181,11 +1245,13 @@ class ManusAudioEngine {
     const ctx = this.ctx;
     if (!this.midiClockOn || !ctx || status === undefined) return;
     if (status === 0xfa) {
+      this.callOffAhead();
       this.midiClockCount = 0;
       this.clockStepAt = 0;
       this.clockTimeAt = ctx.currentTime;
       this.lastDispatchedStep = -1;
       this.missCursor = 0;
+      if (this.rhythmLoopSrc) this.startStem();
       return;
     }
     if (status !== 0xf8) return;
@@ -1211,6 +1277,10 @@ class ManusAudioEngine {
     const clocksPerStep = isBeamSong(this.currentRhythm) ? 24 : 6;
     this.clockStepAt = this.midiClockCount / clocksPerStep;
     this.clockTimeAt = now;
+  }
+
+  private clock(): BeatClock {
+    return { stepAt: this.clockStepAt, timeAt: this.clockTimeAt, stepSec: this.stepDurationSec() };
   }
 
   private readStepFloat(): number {
@@ -1282,6 +1352,13 @@ class ManusAudioEngine {
     this.arcadeHandsPresent = true;
     this.arcade.handsPresent = true;
     this.duckStemForPlayer(true);
+    // The chart's own lead stops where the player comes in: the notes it played ahead are called off, and their gems are
+    // the player's to catch
+    this.callOffAhead("lead");
+    const stepNow = Math.floor(this.readStepFloat());
+    for (let n = stepNow + 1; n <= this.lastDispatchedStep; n++) {
+      if (this.isCatchStep(n)) this.judgedSteps.delete(n);
+    }
   }
 
   private duckStemForPlayer(present: boolean) {
@@ -1337,7 +1414,8 @@ class ManusAudioEngine {
     absStep: number,
     beamIdx: number,
     grade: HitGrade | null,
-    chartAuto: boolean
+    chartAuto: boolean,
+    at?: number
   ): { noteName: string; solmization: string; freqHz: number } {
     const hand: HandSide = beamIdx < 4 ? "left" : "right";
     const finger = (beamIdx % 4) as FingerIndex;
@@ -1357,8 +1435,10 @@ class ManusAudioEngine {
       yBend: this.lastCutoffNorm,
       velocity,
       fromLooper: true,
+      at,
+      tag: chartAuto ? "lead" : "backing",
     });
-    this.onLoopTriggerCallback?.({
+    const ev: LoopEvent = {
       offsetMs: 0,
       hand,
       finger,
@@ -1370,7 +1450,9 @@ class ManusAudioEngine {
       freqHz: res.freqHz,
       grade: grade ?? undefined,
       chartAuto,
-    });
+    };
+    if (this.ctx && at !== undefined && at > this.ctx.currentTime) this.aheadVisuals.push({ at, ev });
+    else this.onLoopTriggerCallback?.(ev);
     return res;
   }
 
@@ -1441,22 +1523,78 @@ class ManusAudioEngine {
     }
   }
 
+  /** Starts a source at `at` and stops it at `end`. One that starts after now is remembered until it sounds, so it can be called off */
+  private startAt(node: AudioScheduledSourceNode, at: number, end: number, tag: SoundTag) {
+    node.start(at);
+    node.stop(end);
+    if (this.ctx && at > this.ctx.currentTime) this.aheadSources.push({ node, at, tag });
+  }
+
+  /** Stops the sounds started ahead of their step that have not sounded yet: all of them, or only the chart's lead */
+  private callOffAhead(only?: "lead") {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    let kick = false;
+    let kept = 0;
+    for (const s of this.aheadSources) {
+      if (s.at <= now) continue;
+      if (only && s.tag !== only) {
+        this.aheadSources[kept++] = s;
+        continue;
+      }
+      try {
+        // Stopped before its start, a source never plays
+        s.node.stop();
+        s.node.disconnect();
+      } catch {
+        /* already stopped */
+      }
+      if (s.tag === "kick") kick = true;
+    }
+    this.aheadSources.length = kept;
+    // Only the chart's lead waits to be drawn, so its notes go either way
+    this.aheadVisuals = this.aheadVisuals.filter((v) => v.at <= now);
+    if (kick && this.sidechainGain) {
+      // A kick called off would still duck the reverb at its time
+      this.sidechainGain.gain.cancelScheduledValues(now);
+      this.sidechainGain.gain.setTargetAtTime(1, now, 0.03);
+    }
+  }
+
+  /** The tempo, chord or sound the steps ahead were played with has changed: they are called off and played again */
+  private replayAhead() {
+    if (!this.ctx || this.currentRhythm === "off") return;
+    this.callOffAhead();
+    const stepNow = Math.floor(this.readStepFloat());
+    if (this.lastDispatchedStep > stepNow) this.lastDispatchedStep = stepNow;
+  }
+
+  /** Lets go of the sources that have started and tells the stage of the chart notes now sounding */
+  private flushAhead(now: number) {
+    let kept = 0;
+    for (const s of this.aheadSources) if (s.at > now) this.aheadSources[kept++] = s;
+    this.aheadSources.length = kept;
+    while (this.aheadVisuals.length && this.aheadVisuals[0].at <= now) {
+      this.onLoopTriggerCallback?.(this.aheadVisuals.shift()!.ev);
+    }
+  }
+
   /**
-   * Called every animation frame. Plays the backing for each step the clock has passed. With no hands in frame it also
+   * Called every animation frame. Plays the backing for each step that starts within the next 100 ms, at the step's own
+   * time on the audio clock, so a late frame or a busy main thread doesn't move the beat. With no hands in frame it also
    * plays the chart's lead notes; with hands, it grades the gems the player let go by as misses.
    */
   public serviceArcade() {
-    if (
-      !this.ctx ||
-      this.currentRhythm === "off" ||
-      this.playQuantizeMode === "guide"
-    ) {
+    const ctx = this.ctx;
+    if (!ctx || this.currentRhythm === "off" || this.playQuantizeMode === "guide") {
       return;
     }
+    this.flushAhead(ctx.currentTime);
     if (this.stutterActive) {
       const stepSec = this.stepDurationSec();
-      if (this.ctx.currentTime - this.lastStutterHat >= stepSec) {
-        this.lastStutterHat = this.ctx.currentTime;
+      if (ctx.currentTime - this.lastStutterHat >= stepSec) {
+        this.lastStutterHat = ctx.currentTime;
         this.playDrumHit("hat");
         if (this.stutterStep % 2 === 0) this.playDrumHit("snare");
         this.stutterStep += 1;
@@ -1469,36 +1607,37 @@ class ManusAudioEngine {
       this.lastDispatchedStep = stepNow - 1;
       this.missCursor = Math.max(this.missCursor, stepNow - 1);
     }
-    while (this.lastDispatchedStep < stepNow) {
-      this.lastDispatchedStep += 1;
-      const s16 = this.slot(this.lastDispatchedStep);
-      this.dispatchBacking(s16);
-      const catchable = this.isCatchStep(this.lastDispatchedStep);
+    const clock = this.clock();
+    // In a setlist, the step that starts the next song is played at its own time: the next song may take its place
+    const songEvery = this.setlistArmed
+      ? isBeamSong(this.currentRhythm)
+        ? this.chartLength()
+        : 128
+      : undefined;
+    const due = lastStepDue(clock, ctx.currentTime, LOOKAHEAD_SEC, songEvery);
+    while (this.lastDispatchedStep < due) {
+      const n = ++this.lastDispatchedStep;
+      const at = Math.max(ctx.currentTime, timeOfStep(clock, n));
+      const s16 = this.slot(n);
+      this.dispatchBacking(s16, at);
       if (!this.arcadeHandsPresent) {
-        const steps = this.getSequenceSteps(this.currentRhythm);
-        const beam = steps[s16];
-        this.judgedSteps.add(this.lastDispatchedStep);
-        this.fireChartNote(this.lastDispatchedStep, beam, null, true);
-      } else if (!catchable) {
-        this.judgedSteps.add(this.lastDispatchedStep);
+        const beam = this.getSequenceSteps(this.currentRhythm)[s16];
+        this.judgedSteps.add(n);
+        this.fireChartNote(n, beam, null, true, at);
+      } else if (!this.isCatchStep(n)) {
+        this.judgedSteps.add(n);
       }
-      if (
-        this.setlistArmed &&
-        this.lastDispatchedStep > 0 &&
-        this.lastDispatchedStep %
-          (isBeamSong(this.currentRhythm) ? this.chartLength() : 128) ===
-          0
-      ) {
+      if (songEvery && n > 0 && n % songEvery === 0) {
         this.songBoundary += 1;
       }
     }
     if (this.arcadeHandsPresent) this.resolveMisses(stepFloat);
   }
 
-  private dispatchBacking(s16: number) {
+  private dispatchBacking(s16: number, at: number) {
     if (isBeamSong(this.currentRhythm)) {
       if (s16 % 4 === 0) {
-        this.playDrumHit("kick");
+        this.playDrumHit("kick", at);
         this.triggerNote({
           hand: "left",
           finger: 0,
@@ -1507,9 +1646,10 @@ class ManusAudioEngine {
           yBend: this.lastCutoffNorm,
           velocity: 0.36,
           fromLooper: true,
+          at,
         });
       } else if (s16 % 2 === 0) {
-        this.playDrumHit("hat");
+        this.playDrumHit("hat", at);
         this.triggerNote({
           hand: "left",
           finger: 3,
@@ -1518,13 +1658,14 @@ class ManusAudioEngine {
           yBend: this.lastCutoffNorm,
           velocity: 0.22,
           fromLooper: true,
+          at,
         });
       }
       return;
     }
-    if (s16 % 4 === 0) this.playDrumHit("kick");
-    if (s16 === 4 || s16 === 12) this.playDrumHit("snare");
-    if (s16 % 4 === 2) this.playDrumHit("hat");
+    if (s16 % 4 === 0) this.playDrumHit("kick", at);
+    if (s16 === 4 || s16 === 12) this.playDrumHit("snare", at);
+    if (s16 % 4 === 2) this.playDrumHit("hat", at);
   }
 
   public stepSequenceByHand(): { beamIdx: number; stepIdx: number } | null {
@@ -1872,9 +2013,10 @@ class ManusAudioEngine {
     });
   }
 
-  private playDrumHit(kind: "kick" | "snare" | "hat") {
+  /** One drum at `at` on the audio clock, or now */
+  private playDrumHit(kind: "kick" | "snare" | "hat", at?: number) {
     const ctx = this.ensureContext();
-    const now = ctx.currentTime;
+    const now = at === undefined ? ctx.currentTime : Math.max(ctx.currentTime, at);
     const dest = this.masterGain!;
 
     if (kind === "kick") {
@@ -1902,10 +2044,8 @@ class ManusAudioEngine {
       g.connect(dest);
       clickG.connect(dest);
 
-      osc.start(now);
-      clickOsc.start(now);
-      osc.stop(now + 0.28);
-      clickOsc.stop(now + 0.02);
+      this.startAt(osc, now, now + 0.28, "kick");
+      this.startAt(clickOsc, now, now + 0.02, "kick");
 
       if (this.sidechainGain) {
         this.sidechainGain.gain.cancelScheduledValues(now);
@@ -1938,10 +2078,8 @@ class ManusAudioEngine {
       body.connect(bg);
       bg.connect(dest);
 
-      noise.start(now);
-      body.start(now);
-      noise.stop(now + 0.18);
-      body.stop(now + 0.11);
+      this.startAt(noise, now, now + 0.18, "backing");
+      this.startAt(body, now, now + 0.11, "backing");
     } else if (kind === "hat" && this.noiseBuffer) {
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
@@ -1954,8 +2092,7 @@ class ManusAudioEngine {
       src.connect(hp);
       hp.connect(g);
       g.connect(dest);
-      src.start(now);
-      src.stop(now + 0.08);
+      this.startAt(src, now, now + 0.08, "backing");
     }
   }
 
@@ -1964,12 +2101,9 @@ class ManusAudioEngine {
   public setRhythmPattern(rhythmId: RhythmId): RhythmId {
     const ctx = this.ensureContext();
     const previous = this.currentRhythm;
+    this.callOffAhead();
     this.currentRhythm = rhythmId;
 
-    if (this.rhythmTimer !== null) {
-      window.clearInterval(this.rhythmTimer);
-      this.rhythmTimer = null;
-    }
     if (this.rhythmLoopSrc) {
       try {
         this.rhythmLoopSrc.stop();
@@ -1992,8 +2126,11 @@ class ManusAudioEngine {
     const effectiveBpm = this.getSongBpm(rhythmId);
     this.synthParams = { ...this.synthParams, bpm: effectiveBpm };
     this.clockBpm = effectiveBpm;
+    // The stem's take for this tempo and chord is made before the clock starts, so the stem and step 0 start on it
+    // and not after the work
+    if (!isBeamSong(rhythmId)) this.stretchedStem();
     this.clockStepAt = 0;
-    this.clockTimeAt = ctx.currentTime;
+    this.clockTimeAt = ctx.currentTime + START_AHEAD_SEC;
     this.lastDispatchedStep = -1;
     this.missCursor = 0;
     this.judgedSteps.clear();
@@ -2004,8 +2141,10 @@ class ManusAudioEngine {
       !isBeamSong(rhythmId) &&
       this.playQuantizeMode !== "guide"
     ) {
-      this.startStem(0);
+      this.startStem();
     }
+    // Step 0 is due now: played here, it starts with the stem instead of a frame later
+    this.serviceArcade();
 
     return this.currentRhythm;
   }
@@ -2022,6 +2161,10 @@ class ManusAudioEngine {
     yBend?: number;
     velocity?: number;
     fromLooper?: boolean;
+    /** When to sound, on the audio clock: now if left out or already past */
+    at?: number;
+    /** What a note played ahead is, so it can be called off */
+    tag?: SoundTag;
   }): { noteName: string; solmization: string; freqHz: number } {
     const ctx = this.ensureContext();
     const modeSpec = MODES.find((m) => m.id === params.mode) ?? MODES[0];
@@ -2055,7 +2198,8 @@ class ManusAudioEngine {
     }
 
     const vel = Math.max(0.25, Math.min(1, params.velocity ?? 0.92));
-    const now = ctx.currentTime;
+    const now = params.at === undefined ? ctx.currentTime : Math.max(ctx.currentTime, params.at);
+    const tag = params.tag ?? "backing";
     const dest = this.filterNode!;
 
     const attackSec = 0.004 + this.synthParams.attackNorm * 0.28;
@@ -2064,14 +2208,12 @@ class ManusAudioEngine {
     if (this.midiEnabled && this.midiOutputs.length > 0) {
       const midiNote = 50 + semi;
       const midiVel = Math.max(1, Math.min(127, Math.round(vel * 120)));
+      // MIDI keeps time on performance.now(): a note played ahead goes out stamped with its own time
+      const onAt = performance.now() + (now - ctx.currentTime) * 1000;
       for (const out of this.midiOutputs) {
         try {
-          out.send([0x90, midiNote, midiVel]);
-          setTimeout(() => {
-            try {
-              out.send([0x80, midiNote, 0]);
-            } catch {}
-          }, Math.round(releaseSec * 450));
+          out.send([0x90, midiNote, midiVel], onAt);
+          out.send([0x80, midiNote, 0], onAt + Math.round(releaseSec * 450));
         } catch {}
       }
     }
@@ -2105,8 +2247,7 @@ class ManusAudioEngine {
 
       src.connect(g);
       g.connect(dest);
-      src.start(now);
-      src.stop(now + attackSec + releaseSec + 0.05);
+      this.startAt(src, now, now + attackSec + releaseSec + 0.05, tag);
     }
 
     if (!useSample || this.engineMode === "hybrid") {
@@ -2132,8 +2273,7 @@ class ManusAudioEngine {
           osc.frequency.setValueAtTime(freqHz, now);
           osc.detune.setValueAtTime(d, now);
           osc.connect(env);
-          osc.start(now);
-          osc.stop(now + attackSec + releaseSec + 0.05);
+          this.startAt(osc, now, now + attackSec + releaseSec + 0.05, tag);
         }
       } else if (params.voice === "cantus" || params.voice === "subbass") {
         const osc = ctx.createOscillator();
@@ -2164,8 +2304,7 @@ class ManusAudioEngine {
         osc.connect(acidFilter);
         acidFilter.connect(env);
         env.connect(dest);
-        osc.start(now);
-        osc.stop(now + attackSec + releaseSec * 0.75 + 0.05);
+        this.startAt(osc, now, now + attackSec + releaseSec * 0.75 + 0.05, tag);
       } else {
         const detunes = [-22, -9, 0, +9, +22];
         const env = ctx.createGain();
@@ -2186,8 +2325,7 @@ class ManusAudioEngine {
           osc.frequency.setValueAtTime(freqHz, now);
           osc.detune.setValueAtTime(d, now);
           osc.connect(env);
-          osc.start(now);
-          osc.stop(now + attackSec + releaseSec + 0.05);
+          this.startAt(osc, now, now + attackSec + releaseSec + 0.05, tag);
         }
       }
 
@@ -2208,8 +2346,7 @@ class ManusAudioEngine {
         );
         sub.connect(subEnv);
         subEnv.connect(dest);
-        sub.start(now);
-        sub.stop(now + attackSec + releaseSec + 0.05);
+        this.startAt(sub, now, now + attackSec + releaseSec + 0.05, tag);
       }
     }
 

@@ -4,6 +4,49 @@ All notable changes to MANUS are documented in this file.
 
 ---
 
+## [6.6.0] — 2026-11-11
+
+### Changed
+- FX-VI is Lumen Haze, in place of Vitrum Sacrum. The room goes dark and fills with haze, lit from just above the stage. The hands stand in that light, so it streams past the fingers in shafts and leaves their shadows in the haze, and their edges catch it from behind. The eight beams are sheets of laser light in the console's four channel colours that flare when they are played, and dust drifts in the light, brighter with the treble. A patch saved with Vitrum Sacrum opens with Lumen Haze.
+- The other five looks are materials now, where they used to tint the camera picture. In front of a plain wall, most of them came out as one flat colour.
+  - Mirror Dimension: glass shards, each tilted its own way and lit by that tilt, with fine cobalt and gold seams along their real edges.
+  - Rubric Vellum: parchment with its fibre, stains and ruled lines, and a vermilion ink shadow under each hand.
+  - Lapis Vortex: lapis stone with calcite veins and gold flecks that catch the light with the treble, turning round the palms.
+  - 1480 Woodcut: cut lines, about 130 down the stage at any resolution, that bend round the hands like the contour lines of an engraving and crosshatch the shadows.
+  - Liquid Mercury: liquid chrome that swells slowly, rings with each note and reflects a studio, with a meniscus round each hand.
+- Each look draws the hand's edge in its own material: an ink outline in Vellum and Woodcut, a back light in Lumen Haze, glass, gold leaf or chrome in the others. A hand in a dim room has its shadows lifted a little. In headless Chrome on an M4 Pro, every look holds 60 frames a second with the hand tracker running.
+- The backing plays on the audio clock. Every drum, bass note and chart note of a riff or song is scheduled up to 100 ms ahead, at its step's exact time. Before, each one played when the next animation frame noticed its step had passed, so with the hand tracker busy on the page the kicks of a 120 BPM riff came 467 to 533 ms apart. They now come 500 ms apart, to the sample. A change of song, tempo, chord or voice calls off whatever was scheduled and not yet heard, and plays it again with the change. The stage lights each chart note at the moment it sounds.
+- The stem stays on the drums under every chord. A chord changed the stem's pitch by playing it faster or slower (0.79× under bVI, 1.33× under IV, 1.5× under V) while the drums and the chart kept the song's tempo, so the stem slid off the beat until the chord went back to I. Each chord now has its own take of the stem, stretched to keep the tempo at the new pitch, and the song clock decides where in the loop the stem plays. A chord change crossfades to the new take in 25 ms; the stem's pitch used to glide there over about 40 ms. The other chords' takes are made in the background once a song or a tempo starts. After a stutter or a tempo change the stem rejoins the clock too, where before it carried on from wherever it had got to.
+- A song and its stem start 15 ms after the button, so the stem's first beat and the first kick land together. Web Audio starts a sound asked for "now" at its next 128-sample block, up to 2.7 ms late.
+- Gestures are read as soon as the tracker answers, once for each camera frame, instead of on the next drawn frame. The tracker always gets the newest frame, and frames it had no time for are dropped. The camera picture goes to the GPU once per camera frame, and the stage's easing is timed in sixtieths of a second, so a 120 Hz screen moves it at the same speed. The footer shows how long a gesture took to be seen, from the camera taking the frame, next to how long a note took to be heard.
+- The pinch is read from the fingertips before smoothing, so a note starts on the frame the fingers close; smoothing still decides where the hand is and which beam it is on. Each hand keeps its own slot from frame to frame, matched by where its wrist was, so two hands that cross or drop out for a moment don't swap pinches. A hand that has just come into view plays nothing for 120 ms, and the tracker's one-frame mistakes play nothing.
+- `?tracker=worker` runs hand tracking in a Web Worker. On an M4 Pro Mac in Chrome, the page thread found hands in 22 ms, 27 ms from frame to gestures, with the stage at 52 frames a second. The worker on the GPU took 50 ms and 72 ms at 60 frames a second, and on the CPU 33 ms and 44 ms. The page thread answers soonest, so it stays the default.
+
+### Fixed
+- The camera's own background no longer shows round each finger as a pale outline. The hand mask was painted wider and softer than the hand; it is tighter now.
+- The seams of Mirror Dimension and the leading of Vitrum Sacrum sat at the middle of each glass cell, where they showed as dots. They were measured from each cell's centre; they are now measured from its edges, and the camera-off stage's facets with them.
+- Note ripples use the console's four channel colours. The fourth was an emerald the console doesn't use.
+- The stretched stem's beats land on time. The stretch placed each window by its start, which moved every beat by half a window times (stretch − 1): 10 ms early at a stretch of 1.5 and 31 ms at 2.5. Windows are now placed by their centre and beats land within 1 ms.
+- The lesson and the gesture guide behave as dialogs: focus goes in when they open, Tab stays inside, and focus goes back to what opened them.
+- The keys go by position, so the shortcuts sit in the same place on AZERTY, QWERTZ or Dvorak. Nothing plays while you type in a text field or compose with an input method.
+- Two fingers on a touch screen strum on their own, and lifting one no longer ends the other's strum. A strum that runs off the stage ends when the finger lifts. A press on one of the stage's buttons no longer plays the beam underneath. On a phone a vertical swipe over the stage still scrolls the page.
+- When the browser takes the WebGL context away (after a GPU reset, or with too many tabs drawing), the stage builds itself again once the context comes back instead of staying blank. Its textures, buffer and program are freed when it closes.
+- The page re-renders only when something it shows changes. The stage pushes its readings many times a second, and most pushes change nothing.
+
+### Added
+- Tests in Node, in `tests/unit`: the gesture rules played against a recorded hand (`tests/fixtures/hands.json`), the frame clock, the song clock and where a stretched stem's beats land. In the browser, `tests/e2e/keys.spec.ts` covers the keys and the dialogs.
+
+---
+
+## [6.5.15] — 2026-11-11
+
+### Changed
+- The crawlers that gather pages to train AI models are turned away in robots.txt, with the same list as karano.me. Every response says `tdm-reservation: 1`, and `/.well-known/tdmrep.json` states the same: text and data mining is reserved under EU Directive 2019/790, Art. 4(3). Search engines, and the assistants that fetch a page because someone asked them, still come in.
+- The app's structured data is on the home page only, with a stable `@id` (`https://manus.karano.me/#app`) and karano.me's MANUS case study under `sameAs`. The Android privacy policy repeated it in full; it is now a plain web page about the app, pointing at that `@id`.
+- The sitemap gives each page the date it last changed: the home page the newest release's date in this changelog, the privacy policy the day its text last changed.
+
+---
+
 ## [6.5.14] — 2026-10-31
 
 ### Fixed
@@ -67,7 +110,7 @@ All notable changes to MANUS are documented in this file.
 ### Added
 - Tests for the crop, run in Node: a webcam, a phone held upright and a 21:9 picture, points keeping their place and squares staying square. The layout test now also fails on a tile name split inside a word, and runs at 412×961 and 320×568 too.
 
-Measured in Chrome on a Mac (Metal) with a fake camera playing a recorded hand: 56 frames a second, up from 52 or 53. The hand tracker waiting on the GPU for its result still takes 84% of the main thread, and the stage's size barely moves that (54 frames a second at Retina scale). Checked with the build and the browser tests in Chrome on a Mac. A phone held upright has not been tested yet.
+Measured in Chrome on a Mac (Metal) with a fake camera playing a recorded hand: 56 frames a second, up from 52 or 53. The hand tracker waiting on the GPU for its result still takes 84% of the main thread, and the stage's size barely moves that (54 frames a second at Retina scale).
 
 ---
 
@@ -77,8 +120,6 @@ Measured in Chrome on a Mac (Metal) with a fake camera playing a recorded hand: 
 - Web Analytics counts how far a visit gets into playing, with no cookies and nothing personal: the camera turned on or refused, the first note from a pinch, the first note without the camera, the first riff or song, the first gem caught, and a return visit. Custom events need Vercel's Pro plan, so each step is a page view of its own, /events/<name>, sent once per page load with nothing else attached. The return visit stores nothing: a page that the offline worker already serves on arrival comes from a browser that had MANUS before, and a reload doesn't count. The README and llms.txt say so.
 - A script for testing the first play with five people in person: four tasks, what to watch in each, one question after each, a table for the notes, and how to read the funnel in Vercel.
 - Browser tests check that each step is sent once: a note without the camera, a song, a caught gem, the camera on and refused, and a return visit but not a reload.
-
-Checked with the build and the browser tests in Chrome on a Mac.
 
 ---
 
@@ -95,8 +136,6 @@ Checked with the build and the browser tests in Chrome on a Mac.
 - The Android app's privacy policy has a page of its own at /android/privacy, the address its Google Play listing gives. The text is the app's docs/privacy-policy.md. It states that the app has no internet access, no account, no ads and no analytics, and that the camera is read on the phone with each frame discarded. Questions go to privacy@karano.me. The console never scrolls, so the policy scrolls in a box of its own, and the note that MANUS needs JavaScript stays off it, since the page needs none. It is in the sitemap, with its own canonical address.
 - A smoke test opens the policy at a phone's width and checks that it answers, can be indexed, shows the contact, scrolls to the end and never sideways, and is in the sitemap.
 
-Checked with the build and the browser tests in Chrome on a Mac.
-
 ---
 
 ## [6.5.6] — 2026-10-25
@@ -108,8 +147,6 @@ Checked with the build and the browser tests in Chrome on a Mac.
 ### Added
 - Tests for the camera choice: the cameras a Fold7 reports, open and closed and either way up, a phone with one selfie camera, an iPhone, a computer and an older Chrome's names. In the browser: an open Fold asks for the inner camera, keeps a working one when that won't open and doesn't loop; opening the phone mid-play switches cameras; turning it doesn't.
 
-Found from the camera list the Fold7 reported (two selfie cameras, 1 and 3) and from what each showed: camera 1 faced the player with the phone closed and the ceiling with it open. Checked with the build and the browser tests in Chrome on a Mac; the Fold itself has not been tested yet.
-
 ---
 
 ## [6.5.5] — 2026-10-25
@@ -120,8 +157,6 @@ Found from the camera list the Fold7 reported (two selfie cameras, 1 and 3) and 
 
 ### Changed
 - Lint leaves out other local checkouts of this repo, which hold their own builds.
-
-Checked with the build and the browser tests, camera ones included, in Chrome on a Mac. The fold itself has not been tested on a phone yet.
 
 ---
 
@@ -148,7 +183,7 @@ Checked with the build and the browser tests, camera ones included, in Chrome on
 
 ### Changed
 - Web Analytics renders on every build, as on karano.me, instead of only when the build sees Vercel's VERCEL variable. On the live site Vercel serves its script and takes the page views at a random path on manus.karano.me, so ad blockers miss it. A local build asks for /_vercel/insights/script.js and gets a 404, and the smoke test that looks for console errors ignores only that.
-- The live smoke test finds the analytics script by its tag and checks it loads. It no longer waits for a page view, because the script sends none from an automated browser. A view was checked by hand in a normal browser: the script and the view both answered 200.
+- The live smoke test finds the analytics script by its tag and checks it loads. It no longer waits for a page view, because the script sends none from an automated browser.
 
 ---
 

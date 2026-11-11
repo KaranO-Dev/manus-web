@@ -31,8 +31,48 @@ import {
 } from "@/lib/gestures";
 import { SHADER_LOOKS, type ShaderLookId } from "@/lib/shader";
 import { count } from "@/lib/events";
+import { isTypingTarget } from "@/lib/keys";
+import { useModalFocus } from "@/lib/modal-focus";
 import { FitLine } from "@/components/FitLine";
 import { StageCanvas, type TelemetryState } from "@/components/StageCanvas";
+import { APP_JSON_LD } from "@/lib/site";
+
+function sameItems<T>(a: readonly T[], b: readonly T[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Whether two telemetry pushes agree on every field the page reads; the waveform has its own state */
+function shownTelemetryEqual(a: TelemetryState, b: TelemetryState) {
+  return (
+    a.cameraActive === b.cameraActive &&
+    a.lastNote === b.lastNote &&
+    a.lastSolmization === b.lastSolmization &&
+    a.lastFreqHz === b.lastFreqHz &&
+    a.currentVowel === b.currentVowel &&
+    a.spaceWarp === b.spaceWarp &&
+    a.filterCutoffNorm === b.filterCutoffNorm &&
+    a.wristTwistNorm === b.wristTwistNorm &&
+    a.reverbAmount === b.reverbAmount &&
+    sameItems(a.activeFingersLeft, b.activeFingersLeft) &&
+    sameItems(a.activeFingersRight, b.activeFingersRight) &&
+    a.hoveredStringIndex === b.hoveredStringIndex &&
+    a.activeStepIndex === b.activeStepIndex &&
+    a.chordRootIdx === b.chordRootIdx &&
+    a.stutterActive === b.stutterActive &&
+    a.arcadeScore === b.arcadeScore &&
+    a.arcadeMultiplier === b.arcadeMultiplier &&
+    a.arcadeHands === b.arcadeHands &&
+    a.pinchDistance === b.pinchDistance &&
+    a.visionMs === b.visionMs &&
+    a.audioMs === b.audioMs
+  );
+}
+
+// Physical keys (KeyboardEvent.code), so the shortcuts stay put on any layout; the labels on screen are the QWERTY letters
+const LEFT_CODES = ["KeyA", "KeyS", "KeyD", "KeyF"] as const;
+const RIGHT_CODES = ["KeyJ", "KeyK", "KeyL", "Semicolon"] as const;
 
 const LEFT_KEYS = ["A", "S", "D", "F"] as const;
 const RIGHT_KEYS = ["J", "K", "L", ";"] as const;
@@ -118,7 +158,8 @@ function readBench(): { patches: (SavedPatch | null)[]; setlist: RhythmId[] } {
     return {
       patches:
         Array.isArray(data.patches) && data.patches.length === 4
-          ? data.patches
+          ? // FX-VI was "stained" (Vitrum Sacrum) before Lumen Haze took its place; a patch saved with it gets the new look
+            data.patches.map((p) => (p && (p.look as string) === "stained" ? { ...p, look: "lumen" } : p))
           : empty.patches,
       setlist:
         Array.isArray(data.setlist) && data.setlist.length === 4
@@ -669,9 +710,11 @@ export default function ManusInstrumentPage() {
     arcadeGrade: null,
     arcadeHands: false,
     pinchDistance: 0,
-    visionMs: 16,
+    visionMs: 0,
     audioMs: 0,
   });
+
+  const [waveform, setWaveform] = useState<number[]>(() => Array(32).fill(0));
 
   const externalTriggerRef = useRef<
     ((hand: HandSide, finger: FingerIndex, silentAudio?: boolean) => void) | null
@@ -682,8 +725,19 @@ export default function ManusInstrumentPage() {
   >(null);
 
   const handleTelemetry = useCallback((t: TelemetryState) => {
-    setTelemetry(t);
-    setLoopState(audioEngine.getLoopState());
+    // Only the fields this page shows count: a push that changes none of them leaves the page alone
+    setTelemetry((prev) => (shownTelemetryEqual(prev, t) ? prev : { ...t, waveform: prev.waveform }));
+    setWaveform((prev) => (sameItems(prev, t.waveform) ? prev : t.waveform));
+    const loop = audioEngine.getLoopState();
+    setLoopState((prev) =>
+      prev.recording === loop.recording &&
+      prev.playing === loop.playing &&
+      prev.progress === loop.progress &&
+      prev.bar === loop.bar &&
+      prev.count === loop.count
+        ? prev
+        : loop
+    );
     pinchRef.current = t.pinchDistance;
     if (!setlistOnRef.current) return;
     if (!audioEngine.consumeSongBoundary()) return;
@@ -956,28 +1010,72 @@ export default function ManusInstrumentPage() {
     setClipRecording(true);
   }, [clipRecording]);
 
+  const guideRef = useModalFocus<HTMLDivElement>(codexOpen);
   const bankVoices = VOICES.filter((v) => v.bank === voiceBank);
+
+  // The key handler reads the latest handlers from here, so its listeners are added once, not on every render
+  const keyActions = useRef<{
+    codexOpen: boolean;
+    bankVoices: typeof bankVoices;
+    buttonKeys: Record<string, () => void>;
+    handlers: Record<"drone" | "camera" | "theremin" | "surge" | "clearTape", () => void>;
+  } | null>(null);
+  useEffect(() => {
+    keyActions.current = {
+      codexOpen,
+      bankVoices,
+      // the toolbar's keys, each written on its button
+      buttonKeys: {
+        KeyP: toggleRiff,
+        KeyI: togglePinchPlay,
+        KeyN: togglePlayAlong,
+        KeyE: toggleBench,
+        KeyQ: toggleQuantize,
+        KeyV: toggleClipRecording,
+        KeyX: toggleUiMode,
+        ...(uiMode === "expert" ? { KeyM: () => void connectMidi() } : {}),
+      },
+      handlers: {
+        drone: toggleDrone,
+        camera: toggleCamera,
+        theremin: toggleTheremin,
+        clearTape,
+        surge: () => {
+          externalPortalSurgeRef.current?.();
+          handleMacroGesture({
+            kind: "FIST_DRONE_LOCK",
+            title: "DRONE & CHORD SURGE",
+            subtitle: "Sub-Brass Drone + 5-Voice Chord",
+            timestamp: performance.now(),
+          });
+        },
+      },
+    };
+  });
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const st = keyActions.current;
+      if (!st || e.repeat || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+      // ? and / are the symbols themselves, so they stay on e.key
       if (e.key === "?" || e.key === "/") {
         e.preventDefault();
         setCodexOpen((prev) => !prev);
         return;
       }
-      if (e.key === "Escape" && codexOpen) {
+      if (e.code === "Escape" && st.codexOpen) {
         setCodexOpen(false);
         return;
       }
-      if (e.key === "Escape") {
+      if (e.code === "Escape") {
         setRecap(null);
         return;
       }
 
-      const k = e.key.toUpperCase();
+      const code = e.code;
 
-      const leftIdx = LEFT_KEYS.indexOf(k as (typeof LEFT_KEYS)[number]);
+      const leftIdx = LEFT_CODES.indexOf(code as (typeof LEFT_CODES)[number]);
       if (leftIdx !== -1) {
         e.preventDefault();
         audioEngine.setChordRootIndex(leftIdx as 0 | 1 | 2 | 3);
@@ -985,73 +1083,56 @@ export default function ManusInstrumentPage() {
         return;
       }
 
-      const rightIdx = RIGHT_KEYS.indexOf(k as (typeof RIGHT_KEYS)[number]);
+      const rightIdx = RIGHT_CODES.indexOf(code as (typeof RIGHT_CODES)[number]);
       if (rightIdx !== -1) {
         e.preventDefault();
         externalTriggerRef.current?.("right", rightIdx as FingerIndex);
         return;
       }
 
-      if (["1", "2", "3", "4", "5", "6"].includes(k)) {
-        const idx = Number(k) - 1;
-        if (bankVoices[idx]) {
+      const digit = /^(?:Digit|Numpad)([1-6])$/.exec(code);
+      if (digit) {
+        const voiceSpec = st.bankVoices[Number(digit[1]) - 1];
+        if (voiceSpec) {
           audioEngine.playMechanicalClick(1350);
-          setVoice(bankVoices[idx].id);
+          setVoice(voiceSpec.id);
         }
-      } else if (k === "B") {
+      } else if (code === "KeyB") {
         e.preventDefault();
         audioEngine.playMechanicalClick(1300);
         setVoiceBank((prev) => (prev === "A" ? "B" : "A"));
-      } else if (k === " ") {
+      } else if (code === "Space") {
         // preventDefault also keeps Space from pressing a toolbar button that still has focus from a click
         e.preventDefault();
-        toggleDrone();
-      } else if (k === "R") {
+        st.handlers.drone();
+      } else if (code === "KeyR") {
         e.preventDefault();
         audioEngine.toggleRecordLoop();
         setLoopState(audioEngine.getLoopState());
-      } else if (k === "C") {
+      } else if (code === "KeyC") {
         e.preventDefault();
-        toggleCamera();
-      } else if (k === "T") {
+        st.handlers.camera();
+      } else if (code === "KeyT") {
         e.preventDefault();
-        toggleTheremin();
-      } else if (k === "G") {
+        st.handlers.theremin();
+      } else if (code === "KeyG") {
         e.preventDefault();
-        externalPortalSurgeRef.current?.();
-        handleMacroGesture({
-          kind: "FIST_DRONE_LOCK",
-          title: "DRONE & CHORD SURGE",
-          subtitle: "Sub-Brass Drone + 5-Voice Chord",
-          timestamp: performance.now(),
-        });
-      } else if (k in buttonKeys) {
+        st.handlers.surge();
+      } else if (code in st.buttonKeys) {
         e.preventDefault();
-        buttonKeys[k]();
-      } else if (k === "Z") {
+        st.buttonKeys[code]();
+      } else if (code === "KeyZ") {
         e.preventDefault();
         audioEngine.setStutterFreeze(true);
-      } else if (k === "BACKSPACE" || k === "DELETE") {
+      } else if (code === "Backspace" || code === "Delete") {
         e.preventDefault();
-        clearTape();
+        st.handlers.clearTape();
       }
     }
 
-    // the toolbar's keys, each written on its button
-    const buttonKeys: Record<string, () => void> = {
-      P: toggleRiff,
-      I: togglePinchPlay,
-      N: togglePlayAlong,
-      E: toggleBench,
-      Q: toggleQuantize,
-      V: toggleClipRecording,
-      X: toggleUiMode,
-      ...(uiMode === "expert" ? { M: () => void connectMidi() } : {}),
-    };
-
     // Z holds the stutter only while it is down, like the `HOLD STUTTER` button
     function onKeyUp(e: KeyboardEvent) {
-      if (e.key.toUpperCase() === "Z") audioEngine.setStutterFreeze(false);
+      if (e.code === "KeyZ") audioEngine.setStutterFreeze(false);
     }
     function onBlur() {
       audioEngine.setStutterFreeze(false);
@@ -1060,29 +1141,15 @@ export default function ManusInstrumentPage() {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
+    // The display is drawn on the server, so it shows before the page listens for keys; the browser tests wait for this
+    document.documentElement.dataset.keys = "on";
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+      delete document.documentElement.dataset.keys;
     };
-  }, [
-    codexOpen,
-    bankVoices,
-    handleMacroGesture,
-    toggleTheremin,
-    toggleDrone,
-    toggleCamera,
-    toggleRiff,
-    togglePinchPlay,
-    togglePlayAlong,
-    toggleBench,
-    toggleQuantize,
-    toggleClipRecording,
-    toggleUiMode,
-    connectMidi,
-    clearTape,
-    uiMode,
-  ]);
+  }, []);
 
   const currentVoiceSpec = VOICES.find((v) => v.id === voice) ?? VOICES[0];
   const currentLookSpec =
@@ -1219,6 +1286,7 @@ export default function ManusInstrumentPage() {
       {/* The gesture guide, opened by the `GUIDE` button or the ? key */}
       {codexOpen ? (
         <div
+          ref={guideRef}
           className="codex-backdrop"
           onClick={() => setCodexOpen(false)}
           role="dialog"
@@ -1981,7 +2049,7 @@ export default function ManusInstrumentPage() {
                 playing={loopState.playing || rhythm !== "off"}
                 recording={loopState.recording}
                 progress={loopState.progress}
-                waveform={telemetry.waveform}
+                waveform={waveform}
                 onClick={() => {
                   const next = audioEngine.toggleRecordLoop();
                   setLoopState((prev) => ({
@@ -2740,7 +2808,10 @@ export default function ManusInstrumentPage() {
         <div className="footer-note">
           <strong>PLAY ALONG</strong> is the song book: Field, Harbor, Night
           Step. Each riff keeps its own tempo. Theremin off takes height out of the sound.{" "}
-          <span className="footer-timing">Heard {telemetry.audioMs} ms · seen {Math.round(telemetry.visionMs)} ms.</span>
+          <span className="footer-timing">
+            Heard {telemetry.audioMs} ms
+            {telemetry.cameraActive && telemetry.visionMs > 0 ? ` · seen ${Math.round(telemetry.visionMs)} ms` : ""}.
+          </span>
         </div>
         {/* each key stays with its name, and the pairs wrap as whole units when the line runs out */}
         <div className="footer-keys">
@@ -2752,6 +2823,8 @@ export default function ManusInstrumentPage() {
           ))}
         </div>
       </footer>
+      {/* What MANUS is, for search engines. Only here: the other pages point at it by its @id */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={APP_JSON_LD} />
     </main>
   );
 }

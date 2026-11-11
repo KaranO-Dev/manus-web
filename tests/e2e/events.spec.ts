@@ -5,9 +5,11 @@ import { expect, test, type Page } from "@playwright/test";
   view waits in window.vaq, and the steps are read from there: each /events/<name> sent once per page load.
 */
 
-async function open(page: Page, path = "/") {
+async function open(page: Page) {
   await page.addInitScript(() => localStorage.setItem("manus.lesson.seen", "1"));
-  await page.goto(path);
+  await page.goto("/");
+  // The display is drawn on the server and shows before the page listens for keys
+  await expect(page.locator("html[data-keys=on]")).toBeAttached();
 }
 
 /** The /events/<name> views sent so far, in order */
